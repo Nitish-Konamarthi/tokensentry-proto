@@ -1,0 +1,303 @@
+# ═══════════════════════════════════════════════════════════
+# TOKENSENTRY — Docker Compose (Full Stack)
+# Local dev + staging environment
+# ═══════════════════════════════════════════════════════════
+
+version: '3.9'
+
+networks:
+  tokensentry_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  postgres_data:
+  redis_data:
+  clickhouse_data:
+  minio_data:
+  portainer_data:
+  meilisearch_data:
+  n8n_data:
+  grafana_data:
+  loki_data:
+  prometheus_data:
+
+services:
+
+  # ── API (Fastify) — 3 replicas for load balancing ────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    command: npm run dev
+    volumes:
+      - ./src:/app/src:ro
+    env_file: .env
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+    ports:
+      - "3000:3000"
+      - "9090:9090"   # Prometheus metrics
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    networks: [tokensentry_net]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── NGINX (API Gateway) ───────────────────────────────────
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: tokensentry_nginx
+    restart: unless-stopped
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./infra/nginx/snippets:/etc/nginx/snippets:ro
+      - /var/log/nginx:/var/log/nginx
+    ports:
+      - "8080:80"
+      - "8443:443"
+    depends_on: [api]
+    networks: [tokensentry_net]
+
+  # ── Apache (Docs + Marketing site) ───────────────────────
+  apache:
+    image: httpd:2.4-alpine
+    container_name: tokensentry_apache
+    restart: unless-stopped
+    volumes:
+      - ./infra/apache/httpd.conf:/usr/local/apache2/conf/httpd.conf:ro
+      - ./infra/apache/extra:/usr/local/apache2/conf/extra:ro
+      - ./infra/apache/htdocs:/var/www/html:ro
+    ports:
+      - "8081:80"
+      - "8444:443"
+    networks: [tokensentry_net]
+
+  # ── PostgreSQL (pgvector) ─────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: tokensentry_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tokensentry
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tokensentry_dev}
+      POSTGRES_DB: tokensentry
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/01-postgres-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./sql/02-clickhouse-schema.sql:/docker-entrypoint-initdb.d/02-note.sql:ro
+      - ./sql/03-seed.sql:/docker-entrypoint-initdb.d/03-seed.sql:ro
+    ports:
+      - "5432:5432"
+    networks: [tokensentry_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tokensentry"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Redis 7 ───────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: tokensentry_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks: [tokensentry_net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── ClickHouse ────────────────────────────────────────────
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: tokensentry_clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASS:-clickhouse_dev}
+      CLICKHOUSE_DB: tokensentry
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./sql/02-clickhouse-schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    ports:
+      - "8123:8123"   # HTTP interface
+      - "9000:9000"   # Native protocol
+      - "9363:9363"   # Prometheus metrics
+    networks: [tokensentry_net]
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  # ── Prometheus ────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: tokensentry_prometheus
+    restart: unless-stopped
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9091:9090"
+    networks: [tokensentry_net]
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+
+  # ── Grafana ───────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: tokensentry_grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3030:3000"
+    depends_on: [prometheus]
+    networks: [tokensentry_net]
+
+  # ── Loki (log aggregation) ────────────────────────────────
+  loki:
+    image: grafana/loki:latest
+    container_name: tokensentry_loki
+    restart: unless-stopped
+    volumes:
+      - loki_data:/loki
+      - ./infra/loki/config.yml:/etc/loki/config.yml:ro
+    ports:
+      - "3100:3100"
+    networks: [tokensentry_net]
+    command: -config.file=/etc/loki/config.yml
+
+  # ── Promtail (ships logs to Loki) ────────────────────────
+  promtail:
+    image: grafana/promtail:latest
+    container_name: tokensentry_promtail
+    restart: unless-stopped
+    volumes:
+      - /var/log:/var/log:ro
+      - ./infra/promtail/config.yml:/etc/promtail/config.yml:ro
+    networks: [tokensentry_net]
+    command: -config.file=/etc/promtail/config.yml
+
+  # ── MinIO (S3-compatible exports + backups) ───────────────
+  minio:
+    image: minio/minio:latest
+    container_name: tokensentry_minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-tokensentry}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio_dev_password}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9010:9000"
+      - "9011:9001"   # MinIO Console
+    networks: [tokensentry_net]
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # ── Portainer (Docker management UI) ─────────────────────
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: tokensentry_portainer
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    ports:
+      - "9443:9443"   # HTTPS
+      - "8000:8000"   # Edge agent
+    networks: [tokensentry_net]
+
+  # ── Meilisearch (docs full-text search) ──────────────────
+  meilisearch:
+    image: getmeili/meilisearch:latest
+    container_name: tokensentry_meilisearch
+    restart: unless-stopped
+    environment:
+      MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-meili_dev_key}
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - meilisearch_data:/meili_data
+    ports:
+      - "7700:7700"
+    networks: [tokensentry_net]
+
+  # ── n8n (workflow automation) ─────────────────────────────
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: tokensentry_n8n
+    restart: unless-stopped
+    environment:
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD:-n8n_dev_password}
+      WEBHOOK_URL: http://localhost:5678
+      N8N_HOST: 0.0.0.0
+      N8N_PORT: 5678
+    volumes:
+      - n8n_data:/home/node/.n8n
+    ports:
+      - "5678:5678"
+    networks: [tokensentry_net]
+
+  # ── NGINX Prometheus exporter ─────────────────────────────
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: tokensentry_nginx_exporter
+    restart: unless-stopped
+    command: -nginx.scrape-uri=http://nginx/stub_status
+    ports:
+      - "9113:9113"
+    depends_on: [nginx]
+    networks: [tokensentry_net]
+
+  # ── Redis exporter (Prometheus) ───────────────────────────
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: tokensentry_redis_exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    ports:
+      - "9121:9121"
+    depends_on: [redis]
+    networks: [tokensentry_net]

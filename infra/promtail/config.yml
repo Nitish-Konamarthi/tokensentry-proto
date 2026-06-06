@@ -1,0 +1,79 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # ── TokenSentry API logs (JSON from pino) ─────────────────────
+  - job_name: tokensentry-api
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: tokensentry-api
+          service: api
+          __path__: /var/log/tokensentry/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level:    level
+            msg:      msg
+            time:     time
+            orgId:    orgId
+            callId:   callId
+            model:    model
+            costUsd:  cost
+            cacheHit: cacheHit
+            duration: durationMs
+      - labels:
+          level:
+          model:
+          cacheHit:
+      - timestamp:
+          source: time
+          format: RFC3339Nano
+
+  # ── Analytics worker logs ─────────────────────────────────────
+  - job_name: tokensentry-worker
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: tokensentry-worker
+          service: analytics-worker
+          __path__: /var/log/tokensentry/workers/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level:   level
+            msg:     msg
+            time:    time
+            jobName: jobName
+            count:   count
+      - labels:
+          level:
+          jobName:
+      - timestamp:
+          source: time
+          format: RFC3339Nano
+
+  # ── NGINX access logs ─────────────────────────────────────────
+  - job_name: nginx
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: nginx
+          service: nginx
+          __path__: /var/log/nginx/*.log
+    pipeline_stages:
+      - regex:
+          expression: >-
+            ^(?P<remote_addr>[\w.]+) - (?P<remote_user>\S+) \[(?P<time_local>[^\]]+)\]
+            "(?P<method>\w+) (?P<path>[^\s]+) [^"]+" (?P<status>\d+)
+            (?P<body_bytes_sent>\d+)
+      - labels:
+          method:
+          status:

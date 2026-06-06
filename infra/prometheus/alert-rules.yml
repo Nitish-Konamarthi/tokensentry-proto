@@ -1,0 +1,94 @@
+groups:
+  - name: tokensentry_api
+    rules:
+      - alert: APIDown
+        expr: up{job="tokensentry-api"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "TokenSentry API is down"
+          description: "API has been unreachable for 1 minute. Check pod health."
+
+      - alert: HighErrorRate
+        expr: >
+          rate(http_requests_total{status=~"5..",job="tokensentry-api"}[5m]) /
+          rate(http_requests_total{job="tokensentry-api"}[5m]) > 0.02
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "High error rate: {{ $value | humanizePercentage }}"
+          description: "Error rate above 2% for 5 minutes. Check logs."
+
+      - alert: HighP99Latency
+        expr: >
+          histogram_quantile(0.99,
+            rate(http_request_duration_seconds_bucket{job="tokensentry-api"}[5m])
+          ) > 2
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "P99 latency above 2s: {{ $value }}s"
+          description: "High latency may be caused by AI classifier timeouts or slow DB queries."
+
+      - alert: HighP50Latency
+        expr: >
+          histogram_quantile(0.50,
+            rate(http_request_duration_seconds_bucket{job="tokensentry-api"}[5m])
+          ) > 0.5
+        for: 15m
+        labels: { severity: info }
+        annotations:
+          summary: "P50 latency above 500ms"
+
+  - name: nginx
+    rules:
+      - alert: NGINXDown
+        expr: nginx_up == 0
+        for: 30s
+        labels: { severity: critical }
+        annotations:
+          summary: "NGINX is down — all traffic affected"
+
+      - alert: NGINXRateLimitSpike
+        expr: rate(nginx_http_requests_total{status="429"}[1m]) > 20
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "High rate limit firing — possible attack or misconfigured client"
+          description: "{{ $value }} 429s/sec. Check for runaway agents or API key compromise."
+
+  - name: budget_health
+    rules:
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 30s
+        labels: { severity: critical }
+        annotations:
+          summary: "CRITICAL: Redis down — budget enforcement OFFLINE"
+          description: "All budget limits are now unenforced. AI calls may run unconstrained."
+
+      - alert: ClickHouseDown
+        expr: clickhouse_up == 0
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "ClickHouse unavailable — analytics pipeline paused"
+          description: "Call events are queuing in Redis. Analytics data will lag."
+
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.85
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Redis memory above 85%"
+          description: "Consider scaling Redis or expiring old keys."
+
+  - name: business_metrics
+    rules:
+      - alert: ZeroCallsLast30Min
+        expr: rate(http_requests_total{route="/v1/proxy/messages"}[30m]) == 0
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: "No proxy calls in the last 30 minutes"
+          description: "Possible integration issue or scheduled downtime."
