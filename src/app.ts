@@ -28,6 +28,8 @@ import { billingRoutes }   from './routes/billing.js'
 import { spendRoutes }     from './routes/spend.js'
 import { budgetRoutes }    from './routes/budgets.js'
 import { onboardingRoutes } from './routes/onboarding.js'
+import { proxyOpenAIRoutes } from './routes/proxy-openai.js'
+import { proxyGeminiRoutes } from './routes/proxy-gemini.js'
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -188,6 +190,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(spendRoutes)
   await app.register(budgetRoutes)
   await app.register(onboardingRoutes)
+  await app.register(proxyOpenAIRoutes, { prefix: '/v1/openai/proxy' })
+  await app.register(proxyGeminiRoutes, { prefix: '/v1/gemini/proxy' })
 
   return app
 }

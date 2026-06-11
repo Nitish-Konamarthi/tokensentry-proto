@@ -19,6 +19,7 @@ set -euo pipefail
 TS_KEY="${1:-}"
 TS_URL="https://api.tokensentry.ai/v1/proxy"
 TS_OPENAI_URL="https://api.tokensentry.ai/v1/openai/proxy"
+TS_GEMINI_URL="https://api.tokensentry.ai/v1/gemini/proxy"
 
 # ── Validate input ──────────────────────────────────────────────────────────
 if [ -z "$TS_KEY" ]; then
@@ -67,6 +68,9 @@ export ANTHROPIC_BASE_URL="$TS_URL"
 export ANTHROPIC_API_KEY="$TS_KEY"
 export OPENAI_BASE_URL="$TS_OPENAI_URL"
 export OPENAI_API_KEY="$TS_KEY"
+export GEMINI_BASE_URL="$TS_GEMINI_URL"
+export GOOGLE_AI_BASE_URL="$TS_GEMINI_URL"
+export GEMINI_API_KEY="$TS_KEY"
 export TOKENSENTRY_API_KEY="$TS_KEY"
 # END TokenSentry
 EOF
@@ -118,10 +122,10 @@ fi
 # ── 7. Final instructions ─────────────────────────────────────────────────────
 echo ""
 echo "══════════════════════════════════════════════════════"
-echo "✅  TokenSentry is now active for:"
+echo "✅  TokenSentry installed for Claude Code, Codex, and Antigravity"
 echo "   • Claude Code    (proxy governance + MCP tools)"
-echo "   • Anthropic SDK  (all tools using ANTHROPIC_BASE_URL)"
-echo "   • OpenAI SDK     (Cursor, Codex, GPT-4 tools)"
+echo "   • OpenAI Codex   (Codex CLI + OpenAI SDK tools)"
+echo "   • Antigravity    (Gemini/Google AI SDK tools)"
 echo ""
 echo "🚀  Activate now:"
 echo "    source $SHELL_PROFILE"

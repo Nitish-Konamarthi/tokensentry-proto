@@ -17,13 +17,16 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "jsx": "react-jsx",
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": false,
     "paths": {
       "@/*": ["./src/*"]
     }
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "dashboard", "src/emails/**", "**/*.test.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "dashboard",
+    "tokensentry-mcp",
+    "src/emails/**"
+  ]
 }

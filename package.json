@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
@@ -19,7 +19,6 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
-    "@auth0/nextjs-auth0": "^4.5.0",
     "@clickhouse/client": "^1.4.0",
     "@fastify/compress": "^8.3.1",
     "@fastify/cors": "^11.2.0",
@@ -35,6 +34,7 @@
     "@opentelemetry/sdk-node": "^0.55.0",
     "@sentry/node": "^8.38.0",
     "@sinclair/typebox": "^0.33.6",
+    "@supabase/supabase-js": "^2.108.1",
     "bullmq": "^5.26.0",
     "drizzle-kit": "^0.31.0",
     "drizzle-orm": "^0.45.2",
@@ -51,6 +51,7 @@
   "devDependencies": {
     "@types/node": "^22.10.1",
     "@vitest/coverage-v8": "^4.1.8",
+    "tsc-alias": "^1.8.17",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^4.1.8"

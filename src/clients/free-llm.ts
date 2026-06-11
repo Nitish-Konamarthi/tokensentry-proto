@@ -20,9 +20,10 @@ interface CompletionResponse {
 // Each pillar gets 3 providers in priority order (free → paid fallback)
 export const PILLAR_MODELS: Record<TSMode, readonly string[]> = {
   task_classifier: [
-    'groq/llama-3.1-8b-instant',                           // PRIMARY: free, ~50ms
-    'cloudflare/@cf/meta/llama-3.1-8b-instruct',           // FALLBACK: free, edge
-    'claude-haiku-4-5',                                     // LAST RESORT: paid
+    'pioneer/gliner2-large-v2',                            // PRIMARY: purpose-built classifier, fast, cheap
+    'groq/llama-3.1-8b-instant',                           // FALLBACK: free, ~50ms
+    'gemini/gemini-2.0-flash',                             // FALLBACK: free
+    'claude-haiku-4-5',                                    // LAST RESORT: paid
   ],
   prompt_optimizer: [
     'groq/llama-3.3-70b-versatile',                        // PRIMARY: better language
@@ -30,8 +31,8 @@ export const PILLAR_MODELS: Record<TSMode, readonly string[]> = {
     'claude-haiku-4-5',                                    // LAST RESORT
   ],
   agentic_guard: [
-    'groq/llama-3.1-8b-instant',                           // PRIMARY: fastest
-    'groq/llama-3.3-70b-versatile',                        // FALLBACK: better decisions
+    'pioneer/gliner2-large-v2',                            // PRIMARY: fast JSON decisions
+    'groq/llama-3.1-8b-instant',                           // FALLBACK: free, fastest
     'claude-haiku-4-5',                                    // LAST RESORT
   ],
   waste_analyzer: [
@@ -45,8 +46,8 @@ export const PILLAR_MODELS: Record<TSMode, readonly string[]> = {
     'claude-sonnet-4-6',                                   // LAST RESORT
   ],
   anomaly_detector: [
-    'groq/llama-3.1-8b-instant',                           // PRIMARY: fast JSON
-    'cloudflare/@cf/meta/llama-3.1-8b-instruct',           // FALLBACK: free
+    'pioneer/gliner2-large-v2',                            // PRIMARY: fast JSON anomaly classification
+    'groq/llama-3.1-8b-instant',                           // FALLBACK: free
     'claude-haiku-4-5',                                    // LAST RESORT
   ],
   cost_forecaster: [
@@ -215,6 +216,21 @@ async function callAnthropicHaiku(
   }
 }
 
+async function callPioneer(
+  systemPrompt: string,
+  userMessage: string,
+  maxTokens: number
+): Promise<CompletionResponse> {
+  // Pioneer GLiNER2 — purpose-built for JSON classification
+  const { callPioneerGLiNER } = await import('./pioneer.js')
+  const content = await callPioneerGLiNER(systemPrompt, userMessage, maxTokens)
+  return {
+    content,
+    model_used: 'pioneer/gliner2-large-v2',
+    tokens: 0, // Pioneer doesn't report token count in the same way
+  }
+}
+
 // ── JSON parser with safety guard ────────────────────────────────────────────
 function parseJsonSafe<T>(raw: string, model: string): T {
   // Strip markdown code fences that some models add despite being asked not to
@@ -262,7 +278,9 @@ export async function callPillarAI<T>(
     try {
       let result: CompletionResponse
 
-      if (model.startsWith('groq/')) {
+      if (model.startsWith('pioneer/')) {
+        result = await callPioneer(systemPrompt, userMessage, maxTokens)
+      } else if (model.startsWith('groq/')) {
         result = await callGroq(model, systemPrompt, userMessage, maxTokens)
       } else if (model.startsWith('gemini/')) {
         result = await callGemini(model, systemPrompt, userMessage, maxTokens)
