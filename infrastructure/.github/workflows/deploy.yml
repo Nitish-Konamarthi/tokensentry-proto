@@ -1,0 +1,50 @@
+name: Deploy Infrastructure
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infrastructure/docker-compose.yml'
+      - 'infrastructure/nginx/**'
+      - 'infrastructure/otel/**'
+      - 'infrastructure/scripts/**'
+      - 'infrastructure/.github/workflows/deploy.yml'
+      - 'api/**'
+      - 'dashboard/**'
+      - 'website/**'
+      - 'shared-types/**'
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd /opt/tokensentry/infrastructure
+            git pull
+
+            # Validate configs before restarting
+            docker run --rm -v $PWD/nginx:/etc/nginx:ro nginx:1.27-alpine nginx -t
+
+            # Restart NGINX if configs changed
+            docker compose up -d --no-deps nginx
+
+            # Restart API if code changed
+            docker compose up -d --no-deps api
+
+            # Restart Dashboard if code changed
+            docker compose up -d --no-deps dashboard
+
+            # Restart Website if code changed
+            docker compose up -d --no-deps website
+
+            # Restart OTel if config changed
+            docker compose up -d --no-deps otel-collector

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "agent_dir": ".opencode/agents",
+  "default_agent": "planner",
+  "model_overrides": {
+    "planner": "openrouter/free",
+    "coder": "openrouter/free",
+    "reviewer": "openrouter/free",
+    "debugger": "openrouter/free",
+    "security-reviewer": "openrouter/free"
+  },
+  "instructions": [
+    "AGENTS.md",
+    "PROJECT_STATE.md"
+  ],
+  "permissions": {
+    "planner": ["read"],
+    "coder": ["read", "edit", "write"],
+    "reviewer": ["read"],
+    "debugger": ["read"],
+    "security-reviewer": ["read"]
+  },
+  "limits": {
+    "max_steps": 25,
+    "step_timeout_ms": 120000
+  }
+}
