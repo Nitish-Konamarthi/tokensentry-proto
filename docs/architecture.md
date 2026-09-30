@@ -7,7 +7,7 @@ Real structure verified from `api/src/app.ts`, `PROJECT_STATE.md`, and package c
 - `dashboard/` — Next.js 14 App Router (Auth0, live data for 6 pages, demo/static for 5)
 - `website/` — Next.js 14 marketing (references unimplemented features)
 - `shared-types/` — TypeBox schemas (`build` before consumption)
-- `infrastructure/` — Docker Compose (PostgreSQL 16, Valkey 8, NGINX, OTel)
+- `infrastructure/` — Docker Compose (PostgreSQL 16, Valkey 8, NGINX). V1 excludes: OpenTelemetry collector, Stripe, ClickHouse, pgvector, semantic cache backend.
 
 ## Request Flow (API)
 ```

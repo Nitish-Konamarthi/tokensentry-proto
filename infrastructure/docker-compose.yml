@@ -84,13 +84,7 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY}
       AUTH0_DOMAIN: ${AUTH0_DOMAIN}
       AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
-      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
-      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
-      STRIPE_PRICE_BUSINESS: ${STRIPE_PRICE_BUSINESS}
-      STRIPE_PRICE_ENTERPRISE: ${STRIPE_PRICE_ENTERPRISE}
       SENTRY_DSN: ${SENTRY_DSN}
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_SERVICE_NAME: tokensentry-api
     depends_on:
       postgres:
         condition: service_healthy
@@ -247,31 +241,4 @@ services:
         max-size: "10m"
         max-file: "2"
 
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.115
-    restart: unless-stopped
-    expose:
-      - "4318"
-      - "4317"
-      - "8889"
-    ports:
-      - "127.0.0.1:8889:8889"
-    environment:
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-      OTEL_INSECURE: ${OTEL_INSECURE:-true}
-      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
-    volumes:
-      - ./otel/otel-collector.yml:/etc/otelcol-contrib/config.yaml:ro
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8889/metrics"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-    networks:
-      - internal
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "2"
+

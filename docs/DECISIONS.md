@@ -12,3 +12,4 @@ Only decisions an agent would miss without reading `analysis.md`, `api/README.md
 8. **TypeScript strict + ESM** (`tsconfig.json`). Shared-types builds before consumption.
 9. **Security headers disabled** (`api/src/app.ts`). Re-enable only with explicit instruction.
 10. **Verification order matters**: `typecheck` → `lint` → `test` → `build`. Integration tests need PostgreSQL 16 + Valkey 8.
+11. **V1 exclusions (verified)**: Stripe billing, prompt optimizer (`ENABLE_PROMPT_OPTIMIZER=false`), semantic/exact cache (`ENABLE_SEMANTIC_CACHE=false`), ClickHouse, pgvector, Kafka, Kubernetes, OpenTelemetry collector, background workers, AI complexity classifier (`unknown` placeholder), Supabase Vault (absent), Resend email (absent). Keep existing abstractions; disable routes and flags.
