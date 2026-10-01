@@ -72,7 +72,7 @@ export class BudgetService {
         utilization,
         should_alert_80: utilization >= 0.80 && utilization < 0.81,
         should_alert_95: utilization >= 0.95 && utilization < 0.96,
-        fallback_model: utilization > 0.75 ? 'claude-haiku-4-5' : undefined,
+        fallback_model: undefined,
       }
     } catch (err) {
       logger.error({ err, orgId: params.orgId }, 'Budget check failed — blocking request (fail-closed)')
@@ -84,7 +84,7 @@ export class BudgetService {
         utilization: 0,
         should_alert_80: false,
         should_alert_95: false,
-        fallback_model: 'claude-haiku-4-5',
+        fallback_model: undefined,
       }
     }
   }

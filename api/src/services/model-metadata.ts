@@ -120,14 +120,8 @@ export function getBestPermittedModel(
   // Filter to only permitted known models
   const permitted = allowedModels.filter(m => isKnownModel(m))
   if (permitted.length === 0) {
-    // Safe generic fallback: lowest tier registered model
-    const allKnown = Object.keys(MODEL_REGISTRY)
-    const lowest = allKnown.sort((a, b) => {
-      const tierA = MODEL_TIERS.indexOf(MODEL_REGISTRY[a]!.tier)
-      const tierB = MODEL_TIERS.indexOf(MODEL_REGISTRY[b]!.tier)
-      return tierA - tierB
-    })[0]
-    return lowest ?? 'claude-haiku-4-5'
+    // No valid permitted candidates exist. Return empty/unknown rather than inventing a Claude default.
+    return ''
   }
 
   // Apply max_model_tier constraint if configured
@@ -142,10 +136,16 @@ export function getBestPermittedModel(
     }
   }
 
-  const permittedToSelect = constrainedPermitted.length > 0 ? constrainedPermitted : permitted
+  const permittedToSelect = constrainedPermitted.length > 0 ? constrainedPermitted : []
 
   // If requested is permitted, return it
   if (permittedToSelect.includes(requestedModel)) return requestedModel
+
+  // No valid permitted candidates exist (either no permitted models configured,
+  // or max_model_tier eliminated all permitted candidates, or policy has only unsupported models)
+  if (permittedToSelect.length === 0) {
+    return ''
+  }
 
   // Determine selection strategy
   const metaRequested = MODEL_REGISTRY[requestedModel]
@@ -184,5 +184,5 @@ export function getBestPermittedModel(
     }
   })
 
-  return sorted[0] ?? permittedToSelect[0] ?? 'claude-haiku-4-5'
+  return sorted[0] ?? permittedToSelect[0] ?? ''
 }
