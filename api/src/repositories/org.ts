@@ -44,14 +44,6 @@ export class OrgRepository {
     return rows[0]!
   }
 
-  async updateStripeCustomerId(id: string, stripeCustomerId: string) {
-    const rows = await db.update(organizations)
-      .set({ stripeCustomerId, updatedAt: new Date() })
-      .where(eq(organizations.id, id))
-      .returning()
-    return rows[0] ?? null
-  }
-
   async updatePlan(id: string, plan: string) {
     const rows = await db.update(organizations)
       .set({ plan, updatedAt: new Date() })

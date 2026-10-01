@@ -26,25 +26,11 @@ const envSchema = z.object({
   GEMINI_API_KEY: z.string().optional(),
   GROQ_API_KEY: z.string().optional(),
 
-  // Supabase Vault (optional — for encrypted customer keys)
-  SUPABASE_URL: z.string().url().optional(),
-  SUPABASE_SERVICE_KEY: z.string().optional(),
-
-  // Stripe (optional)
-  STRIPE_SECRET_KEY: z.string().optional(),
-  STRIPE_WEBHOOK_SECRET: z.string().optional(),
-
-  // Email (optional)
+  // Email (optional — V1 excludes Resend delivery; config kept for future)
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().email().default('alerts@mail.tokensentry.ai'),
 
-  // Feature flags
-  ENABLE_SEMANTIC_CACHE: z.coerce.boolean().default(false),
-  ENABLE_PROMPT_OPTIMIZER: z.coerce.boolean().default(false),
-  SMOL_LLM_OPTIMIZER_COMMAND: z.string().optional(),
-  SMOL_LLM_OPTIMIZER_TIMEOUT_MS: z.coerce.number().int().positive().default(50),
-  PROMPT_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
-  PROMPT_OPTIMIZER_URL: z.string().url().optional(),
+  // Feature flags (V1 keeps core functions only)
   MAX_PROMPT_CHARS: z.coerce.number().int().positive().default(131072),
 
   // Rate limits

@@ -17,12 +17,6 @@ export interface BudgetState {
   readonly fallbackModel?: string
 }
 
-export interface PromptMetadata {
-  readonly optimized: boolean
-  readonly optimizerReason: string
-  readonly estimatedSavingsTokens: number
-}
-
 export interface RoutingDecision {
   readonly requestedModel: string
   readonly approvedModel: string
@@ -71,11 +65,9 @@ export interface RequestContext {
     readonly payload: ProxyRequest
     readonly normalized?: NormalizedProxyRequest
     readonly hash?: string
-    readonly optimizedMessages?: ProxyRequest['messages']
   }
   readonly providerHealth?: ProviderHealthState
   readonly budgetState?: BudgetState
-  readonly promptMetadata?: PromptMetadata
   readonly routingDecision?: RoutingDecision
   readonly analyticsMetadata?: AnalyticsMetadata
   readonly timestamps: RequestTimestamps

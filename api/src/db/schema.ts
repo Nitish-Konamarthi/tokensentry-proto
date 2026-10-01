@@ -9,7 +9,6 @@ export const organizations = pgTable('organizations', {
   slug: text('slug').notNull().unique(),
   plan: text('plan').notNull().default('starter'),
   adminEmail: text('admin_email'),
-  stripeCustomerId: text('stripe_customer_id').unique(),
   modelPolicy: jsonb('model_policy').notNull().default({
     allowed_models: ['claude-haiku-4-5', 'claude-sonnet-4-6'],
     max_model_tier: 'sonnet',

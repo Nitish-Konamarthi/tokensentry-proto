@@ -54,7 +54,6 @@ export const ValkeyKeys = {
   agentBlocked: (sessionId: string) => `agent:blocked:${sessionId}`,
   agentTokenHistory: (sessionId: string) => `agent:tokens:${sessionId}`,
   sessionCache: (sessionId: string) => `session:${sessionId}`,
-  exactCache: (orgId: string, hash: string) => `cache:exact:${orgId}:${hash}`,
 } as const
 
 export async function checkValkeyHealth(): Promise<boolean> {

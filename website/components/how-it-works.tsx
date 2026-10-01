@@ -9,7 +9,7 @@ export function HowItWorks() {
     {
       n: '02',
       title: 'Every call is classified + optimized',
-      body: 'TokenSentry\'s AI classifier routes to the cheapest capable model. The prompt optimizer strips 30\u201370% of tokens. If an identical query was answered before, the cached response is returned instantly \u2014 zero tokens.',
+      body: 'Every call is routed to the cheapest capable allowed model based on organizational policy. Budget limits are enforced atomically before the provider call is made.',
       code: 'X-TS-Approved-Model: claude-haiku-4-5',
     },
     {
@@ -21,8 +21,8 @@ export function HowItWorks() {
     {
       n: '04',
       title: 'Watch savings compound on the dashboard',
-      body: 'Every dollar saved, every cache hit, every routing decision \u2014 visible in your dashboard. CFOs get one-question answers. Agents get loop protection. FinOps teams get weekly reports.',
-      code: 'Saved $2,841 this month vs unrestricted usage',
+      body: 'Every routing decision, budget enforcement, and agent guard event is logged. FinOps teams get usage reports. Agents get loop protection.',
+      code: '{"saved_usd": 2841.00, "routing_decisions": 1247, "budget_events": 3}',
     },
   ]
 

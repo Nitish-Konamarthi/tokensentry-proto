@@ -13,8 +13,6 @@ interface ModelPolicy {
   allowed_models?: string[]
   max_model_tier?: string
   require_classification?: boolean
-  enable_semantic_cache?: boolean
-  enable_prompt_optimizer?: boolean
 }
 
 export default function SettingsPage() {
@@ -22,16 +20,12 @@ export default function SettingsPage() {
   const updateSettings = useUpdateSettings()
 
   const [orgName, setOrgName] = useState('')
-  const [semanticCache, setSemanticCache] = useState(false)
-  const [promptOptimizer, setPromptOptimizer] = useState(false)
   const [requireClassification, setRequireClassification] = useState(true)
 
   useEffect(() => {
     if (settings) {
       setOrgName(settings.name ?? '')
       const policy = settings.model_policy as ModelPolicy | null
-      setSemanticCache(policy?.enable_semantic_cache ?? false)
-      setPromptOptimizer(policy?.enable_prompt_optimizer ?? false)
       setRequireClassification(policy?.require_classification ?? true)
     }
   }, [settings])
@@ -40,8 +34,6 @@ export default function SettingsPage() {
     updateSettings.mutate({
       name: orgName,
       model_policy: {
-        enable_semantic_cache: semanticCache,
-        enable_prompt_optimizer: promptOptimizer,
         require_classification: requireClassification,
         allowed_models: (settings?.model_policy as ModelPolicy | null)?.allowed_models ?? [],
         max_model_tier: (settings?.model_policy as ModelPolicy | null)?.max_model_tier ?? 'sonnet',
@@ -51,8 +43,6 @@ export default function SettingsPage() {
 
   const hasChanges = settings && (
     orgName !== (settings.name ?? '')
-    || semanticCache !== ((settings.model_policy as ModelPolicy | null)?.enable_semantic_cache ?? false)
-    || promptOptimizer !== ((settings.model_policy as ModelPolicy | null)?.enable_prompt_optimizer ?? false)
     || requireClassification !== ((settings.model_policy as ModelPolicy | null)?.require_classification ?? true)
   )
 
@@ -98,22 +88,6 @@ export default function SettingsPage() {
           <CardDescription>Configure how TokenSentry routes and optimizes your AI calls</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Semantic Cache</p>
-              <p className="text-xs text-muted-foreground">Cache semantically similar prompts to reduce costs (Tier 2)</p>
-            </div>
-            <Switch checked={semanticCache} onCheckedChange={setSemanticCache} />
-          </div>
-          <Separator />
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Prompt Optimizer</p>
-              <p className="text-xs text-muted-foreground">Optimize prompts before sending to reduce token usage</p>
-            </div>
-            <Switch checked={promptOptimizer} onCheckedChange={setPromptOptimizer} />
-          </div>
-          <Separator />
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium">Require Classification</p>

@@ -9,7 +9,7 @@ Dashboard (Next.js) -> Auth0 login -> Live API hooks (polling every 30s)
 No LLM/SLM inside request path. No semantic cache. No prompt optimizer. No ClickHouse.
 
 ## Required Environment Variables (.env)
-NODE_ENV, PORT, HOST, API_KEY_PEPPER, DATABASE_URL, VALKEY_URL, AUTH0_DOMAIN, AUTH0_AUDIENCE, ANTHROPIC_API_KEY (or OPENAI/GEMINI/GROQ), ENCRYPTION_KEY, ENABLE_SEMANTIC_CACHE=false, ENABLE_PROMPT_OPTIMIZER=false, TRUSTED_PROXY_CIDRS
+NODE_ENV, PORT, HOST, API_KEY_PEPPER, DATABASE_URL, VALKEY_URL, AUTH0_DOMAIN, AUTH0_AUDIENCE, ANTHROPIC_API_KEY (or OPENAI/GEMINI/GROQ), ENCRYPTION_KEY, TRUSTED_PROXY_CIDRS
 Agent Guard thresholds: AGENT_GUARD_MAX_RPS, AGENT_GUARD_RETRY_RATIO, AGENT_GUARD_TOOL_RATIO, AGENT_GUARD_RECURSIVE_DEPTH_LIMIT, AGENT_GUARD_SESSION_TTL_SECONDS, AGENT_GUARD_BLOCK_TTL_SECONDS
 Rate limit: RATE_LIMIT_PROXY_ORG (default 500)
 
@@ -36,9 +36,7 @@ No ungraceful exits in production mode.
 ## Free-Tier Limitations (Documented)
 - Single instance only (docker-compose supports multi-service but not multi-replica; no Kubernetes).
 - Analytics aggregated in PostgreSQL + Valkey counters (not ClickHouse). Real-time spans not implemented.
-- Semantic cache and prompt optimizer are flags (false by default) with 0% implementation.
 - Dashboard pages: providers, team, audit-log, settings use live API; advisor uses demo/static data.
-- Stripe billing exists (routes/services) but disabled in V1 deployment (routes excluded from app.ts).
 - No email notifications (Resend not implemented).
 - Security headers disabled by default (CSP: false, HSTS: false) — re-enable explicitly for HTTPS.
 - Provider clients use native fetch (no SDK-level retry abstraction beyond provider-fetch wrapper: max 2 retries, 10s timeout, 4xx non-retryable).

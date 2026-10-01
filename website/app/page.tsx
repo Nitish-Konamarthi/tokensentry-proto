@@ -76,9 +76,9 @@ function Stats() {
 
 function Faq() {
   const faqs = [
-    { q: 'How is TokenSentry different from just choosing a cheaper model?', a: 'We don\'t just pick one model \u2014 we classify every individual task and route it to the optimal model. A quick Q&A goes to Haiku ($0.25/M tokens), while complex architecture reviews go to Sonnet or Opus. The same conversation can use different models for different turns.' },
+    { q: 'How is TokenSentry different from just choosing a cheaper model?', a: 'We enforce organizational model policies and cost-aware routing. Each call is routed to the cheapest allowed model based on your policy (e.g., Haiku for simple Q&A, Sonnet or Opus for complex tasks). The same conversation can mix different models per turn.' },
     { q: 'Do I need to change my application code?', a: 'One line: change your baseURL from api.anthropic.com to api.tokensentry.ai/v1/proxy. Your existing Anthropic SDK code works without any other modifications. We\'re a drop-in proxy.' },
-    { q: 'Is my data secure?', a: 'Yes. Your API key never touches our servers \u2014 it\'s stored encrypted in your Supabase Vault and decrypted in-memory only when making the upstream API call on your behalf. We don\'t log prompt contents unless you enable it. SOC 2 compliance in progress.' },
+    { q: 'Is my data secure?', a: 'Yes. API keys are validated via HMAC-SHA256 with a platform pepper. We don\'t log prompt contents. Budget enforcement uses Valkey atomic counters. No customer keys are stored on our servers.' },
     { q: 'What providers do you support?', a: 'Currently Anthropic Claude (Haiku, Sonnet, Opus). OpenAI GPT-4o and Google Gemini support are in beta \u2014 contact us to enable them for your organization.' },
     { q: 'How does caching work?', a: 'V1 uses basic Valkey key-value storage for session state and budget counters. Semantic similarity caching (pgvector) and exact prompt caching are deferred features.' },
     { q: 'What happens when we hit our budget limit?', a: 'The Atomic Governor blocks the call before it reaches the provider and returns a 429 response with clear details: which limit was hit, current spend, and a link to your dashboard. You can configure the action per policy \u2014 block, downgrade to Haiku, or notify only.' },

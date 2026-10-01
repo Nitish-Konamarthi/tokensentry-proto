@@ -22,8 +22,6 @@ in each package's own CHANGELOG.md or inferred from git history.
 ## [Unreleased]
 
 ### Added
-- API endpoint for AI budget advisor queries
-- Dashboard advisor page with natural-language budget Q&A
 - Real-time spend tracking via Valkey counters
 - Auth0 integration for dashboard authentication
 - Docker Compose deployment with healthchecks

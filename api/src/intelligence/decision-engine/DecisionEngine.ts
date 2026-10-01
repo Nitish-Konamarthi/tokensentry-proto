@@ -12,36 +12,33 @@ import { env } from '../../config/env.js'
 import {
   computeRequestHash,
   estimateTokenCount,
-  estimatePromptSavings,
+  normalizeRequestPayload,
 } from '../analyzer/index.js'
-import { analyzePrompt } from '../analyzer/index.js'
-import { optimizePromptRequest } from '../optimizer/index.js'
 import type { DecisionResult } from './DecisionResult.js'
 import type { RequestContext } from '../request-context.js'
 
 export class DecisionEngine {
   async decide(context: RequestContext): Promise<DecisionResult> {
-    const analysis = analyzePrompt({
+    const normalized = normalizeRequestPayload({
       model: context.request.payload.model,
       system: context.request.payload.system,
       messages: context.request.payload.messages,
       maxTokens: context.request.payload.max_tokens ?? undefined,
       temperature: context.request.payload.temperature ?? undefined,
-      stream: context.request.payload.stream ?? false,
     })
 
     const requestHash = computeRequestHash({
-      model: analysis.normalized.model,
-      system: analysis.normalized.system,
-      messages: analysis.normalized.messages,
-      maxTokens: analysis.normalized.maxTokens,
-      temperature: analysis.normalized.temperature,
+      model: normalized.model,
+      system: normalized.system,
+      messages: normalized.messages,
+      maxTokens: normalized.maxTokens,
+      temperature: normalized.temperature,
     })
     let ctx: RequestContext = {
       ...context,
       request: {
         ...context.request,
-        normalized: analysis.normalized,
+        normalized,
         hash: requestHash,
       },
       timestamps: {
@@ -64,36 +61,11 @@ export class DecisionEngine {
       }
     }
 
-    const optimizerResult = await optimizePromptRequest({
-      model: ctx.request.payload.model,
-      system: ctx.request.payload.system,
-      messages: analysis.normalized.messages,
-      stream: ctx.request.payload.stream ?? false,
-      orgPolicy: { allowed_models: ['claude-haiku-4-5', 'claude-sonnet-4-6'], max_model_tier: 'sonnet' },
-      shouldOptimize: analysis.recommendOptimization && env.ENABLE_PROMPT_OPTIMIZER,
-    })
-
-    const optimizedMessages = optimizerResult.messages
-    const originalInputTokens = estimateTokenCount(analysis.normalized.messages)
-    const optimizedInputTokens = estimateTokenCount(optimizedMessages)
-    const estimatedSavingsTokens = Math.max(0, originalInputTokens - optimizedInputTokens)
-    const contextTokens = optimizedInputTokens
+    const inputTokens = estimateTokenCount(normalized.messages)
     const outputTokens = ctx.request.payload.max_tokens ?? 1024
-    const estimatedCostUsd = routerService.estimateCost(contextTokens, outputTokens, ctx.request.payload.model)
+    const estimatedCostUsd = routerService.estimateCost(inputTokens, outputTokens, ctx.request.payload.model)
     const estimatedCostMicros = Math.ceil(estimatedCostUsd * 1_000_000)
-
-    ctx = {
-      ...ctx,
-      request: {
-        ...ctx.request,
-        optimizedMessages,
-      },
-      promptMetadata: {
-        optimized: optimizerResult.optimized,
-        optimizerReason: optimizerResult.reason,
-        estimatedSavingsTokens,
-      },
-    }
+    const contextTokens = inputTokens
 
     const budgetCheck = await budgetService.checkAndDeduct({
       orgId: ctx.organization.id,
@@ -237,7 +209,7 @@ export class DecisionEngine {
         provider,
         model: finalModel,
         apiKey: platformKey,
-        messages: ctx.request.optimizedMessages ?? ctx.request.normalized?.messages ?? ctx.request.payload.messages,
+        messages: ctx.request.normalized?.messages ?? ctx.request.payload.messages,
         system: ctx.request.payload.system,
         maxTokens: outputTokens,
         temperature: ctx.request.payload.temperature,
@@ -324,7 +296,7 @@ export class DecisionEngine {
           provider,
           budgetUtilization: budgetCheck.utilization,
           timestamp: Date.now(),
-        }, optimizedMessages)
+        }, ctx.request.normalized?.messages ?? ctx.request.payload.messages)
       }
 
       const savedUsd = routerService.calculateSavings(inputTokens, outTokens, ctx.request.payload.model, finalModel)
@@ -346,8 +318,6 @@ export class DecisionEngine {
           cost_usd: actualCostMicros / 1_000_000,
           saved_usd: savedUsd,
           cache_hit: false,
-          optimizer_applied: optimizerResult.optimized,
-          optimizer_reason: optimizerResult.reason,
         },
       }
 

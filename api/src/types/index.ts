@@ -41,8 +41,6 @@ export interface ProxyResponse {
     cost_usd: number
     saved_usd: number
     cache_hit: boolean
-    optimizer_applied?: boolean
-    optimizer_reason?: string
   }
 }
 

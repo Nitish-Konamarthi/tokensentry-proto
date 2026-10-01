@@ -1,6 +1,6 @@
 # TokenSentry Architecture — Agent Reference
 
-Real structure verified from `api/src/app.ts`, `PROJECT_STATE.md`, and package configs.
+Real structure verified from `api/src/app.ts` and package configs.
 
 ## Packages
 - `api/` — Fastify 5 (proxy, budget, auth, analytics, agent-guard)
@@ -33,7 +33,6 @@ Client POST /v1/proxy
 - Security headers disabled (`contentSecurityPolicy: false`, `hsts: false`).
 - `optionalAuth` silently swallows errors — hidden auth failures possible.
 - Rate limiter race: `multi().exec()` then separate `pexpire()`.
-- Unimplemented flags: `ENABLE_SEMANTIC_CACHE` (0%), `ENABLE_PROMPT_OPTIMIZER` (0%).
 
 ## Data Storage
 - PostgreSQL 16 (10 tables: organizations, api_keys, budgets, usage_logs, etc.) — persistent.
