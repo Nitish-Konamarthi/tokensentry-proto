@@ -11,7 +11,6 @@ CREATE TABLE organizations (
   slug              TEXT NOT NULL UNIQUE,
   plan              TEXT NOT NULL DEFAULT 'starter',
   admin_email       TEXT,
-  stripe_customer_id TEXT UNIQUE,
   model_policy      JSONB NOT NULL DEFAULT '{"allowed_models":["claude-haiku-4-5","claude-sonnet-4-6"],"max_model_tier":"sonnet","require_classification":true,"allow_opus":false}',
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()

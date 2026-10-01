@@ -26,10 +26,6 @@ const envSchema = z.object({
   GEMINI_API_KEY: z.string().optional(),
   GROQ_API_KEY: z.string().optional(),
 
-  // Email (optional — V1 excludes Resend delivery; config kept for future)
-  RESEND_API_KEY: z.string().optional(),
-  EMAIL_FROM: z.string().email().default('alerts@mail.tokensentry.ai'),
-
   // Feature flags (V1 keeps core functions only)
   MAX_PROMPT_CHARS: z.coerce.number().int().positive().default(131072),
 

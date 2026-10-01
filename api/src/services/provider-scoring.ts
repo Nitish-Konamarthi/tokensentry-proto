@@ -1,6 +1,6 @@
 import { providerRouter } from './provider-router.js'
 import type { ProviderType } from '../types/index.js'
-import { MODEL_TIERS, MODEL_COSTS } from './model-metadata.js'
+import { getCapabilityScore, MODEL_REGISTRY, MODEL_COSTS } from './model-metadata.js'
 import type { ProviderHealthState } from './provider-router.js'
 
 export interface ProviderScoreComponents {
@@ -61,9 +61,9 @@ function computeCostScore(model: string, inputTokens: number, outputTokens: numb
 }
 
 function computeCapabilityScore(model: string): number {
-  const tierIndex = MODEL_TIERS.indexOf(model as typeof MODEL_TIERS[number])
-  if (tierIndex === -1) return 0.5
-  return clamp01((tierIndex + 1) / MODEL_TIERS.length)
+  const score = getCapabilityScore(model)
+  if (score === 0) return 0.5
+  return score / 4  // normalize from 1-4 to 0.25-1.0
 }
 
 function computeHealthScore(healthState: ProviderHealthState): number {
