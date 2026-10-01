@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 7%;
+    --foreground: 0 0% 95%;
+    --card: 0 0% 9%;
+    --card-foreground: 0 0% 95%;
+    --popover: 0 0% 9%;
+    --popover-foreground: 0 0% 95%;
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 13%;
+    --secondary-foreground: 0 0% 80%;
+    --muted: 0 0% 13%;
+    --muted-foreground: 0 0% 55%;
+    --accent: 239 84% 67%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 16%;
+    --input: 0 0% 16%;
+    --ring: 239 84% 67%;
+    --radius: 0.5rem;
+    --sidebar: 0 0% 5%;
+    --sidebar-foreground: 0 0% 80%;
+    --sidebar-muted: 0 0% 30%;
+    --chart-1: 239 84% 67%;
+    --chart-2: 160 84% 47%;
+    --chart-3: 45 93% 52%;
+    --chart-4: 217 91% 60%;
+    --chart-5: 271 91% 65%;
+    --font-sans: 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  .light {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 9%;
+    --card: 0 0% 98%;
+    --card-foreground: 0 0% 9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 9%;
+    --primary: 239 84% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 93%;
+    --secondary-foreground: 0 0% 20%;
+    --muted: 0 0% 93%;
+    --muted-foreground: 0 0% 50%;
+    --accent: 239 84% 60%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 88%;
+    --input: 0 0% 88%;
+    --ring: 239 84% 60%;
+    --sidebar: 0 0% 97%;
+    --sidebar-foreground: 0 0% 30%;
+    --sidebar-muted: 0 0% 60%;
+    --chart-1: 239 84% 60%;
+    --chart-2: 160 84% 45%;
+    --chart-3: 45 93% 48%;
+    --chart-4: 217 91% 55%;
+    --chart-5: 271 91% 60%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans);
+  }
+}
+
+@layer components {
+  .sidebar-link {
+    @apply flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium
+           text-sidebar-foreground transition-colors
+           hover:bg-white/5 hover:text-foreground
+           data-[active=true]:bg-primary/10 data-[active=true]:text-primary;
+  }
+
+  .metric-card {
+    @apply relative overflow-hidden rounded-xl border bg-card p-5 transition-all
+           hover:border-primary/30;
+  }
+
+  .page-header {
+    @apply flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8;
+  }
+
+  .page-title {
+    @apply text-2xl font-semibold tracking-tight;
+  }
+
+  .page-sub {
+    @apply text-sm text-muted-foreground mt-1;
+  }
+
+  .code-block {
+    @apply rounded-lg bg-muted p-4 font-mono text-sm overflow-x-auto;
+  }
+}

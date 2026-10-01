@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'api/**'
+      - 'shared-types/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'api/**'
+      - 'shared-types/**'
+
+jobs:
+  test:
+    name: Typecheck & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tokensentry
+          POSTGRES_PASSWORD: tokensentry
+          POSTGRES_DB: tokensentry
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: api/package-lock.json
+
+      - run: npm ci --frozen-lockfile
+        working-directory: api
+
+      - run: npm run typecheck
+        working-directory: api
+
+      - run: npm test
+        working-directory: api
+        env:
+          DATABASE_URL: postgresql://tokensentry:tokensentry@localhost:5432/tokensentry
+          VALKEY_URL: redis://localhost:6379
+          API_KEY_PEPPER: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          AUTH0_DOMAIN: test.auth0.com
+          AUTH0_AUDIENCE: https://api.tokensentry.ai

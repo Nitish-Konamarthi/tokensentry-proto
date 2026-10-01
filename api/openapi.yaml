@@ -1,0 +1,395 @@
+openapi: 3.0.3
+info:
+  title: TokenSentry API
+  description: Enterprise AI Token Governance — Drop-in proxy for Anthropic, OpenAI, Gemini, and Groq
+  version: 1.0.0
+  contact:
+    name: TokenSentry Support
+    email: support@tokensentry.ai
+
+servers:
+  - url: https://api.tokensentry.ai
+    description: Production
+  - url: http://localhost:3000
+    description: Local development
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      description: API key starting with ts_live_
+
+  schemas:
+    ProxyRequest:
+      type: object
+      required: [model, messages]
+      properties:
+        model:
+          type: string
+          example: claude-sonnet-4-6
+        messages:
+          type: array
+          items:
+            type: object
+            properties:
+              role:
+                type: string
+                enum: [user, assistant, system]
+              content:
+                type: string
+        system:
+          type: string
+        stream:
+          type: boolean
+        max_tokens:
+          type: integer
+          minimum: 1
+          maximum: 200000
+
+    ProxyResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              message:
+                type: object
+                properties:
+                  role:
+                    type: string
+                  content:
+                    type: string
+              finish_reason:
+                type: string
+        usage:
+          type: object
+          properties:
+            prompt_tokens:
+              type: integer
+            completion_tokens:
+              type: integer
+            total_tokens:
+              type: integer
+        _ts:
+          type: object
+          properties:
+            call_id:
+              type: string
+            cost_usd:
+              type: number
+            saved_usd:
+              type: number
+            cache_hit:
+              type: boolean
+
+    BudgetPolicy:
+      type: object
+      properties:
+        id:
+          type: string
+        monthly_limit_usd:
+          type: number
+        daily_limit_usd:
+          type: number
+          nullable: true
+        alert_at_80:
+          type: boolean
+        alert_at_95:
+          type: boolean
+        on_exhaustion:
+          type: string
+          enum: [block, downgrade, warn]
+
+    ApiKey:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        prefix:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+        revoked:
+          type: boolean
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        call_id:
+          type: string
+
+paths:
+  /health/live:
+    get:
+      summary: Liveness check
+      tags: [Health]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  uptime:
+                    type: number
+                  timestamp:
+                    type: string
+
+  /health/ready:
+    get:
+      summary: Readiness check
+      tags: [Health]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  database:
+                    type: string
+                  valkey:
+                    type: string
+
+  /v1/proxy:
+    post:
+      summary: Proxy an AI call
+      description: >
+        Routes an AI provider call through TokenSentry's governance pipeline.
+        Authenticated via API key. Supports Anthropic, OpenAI, Gemini, and Groq.
+      tags: [Proxy]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProxyRequest'
+      responses:
+        '200':
+          description: Successful response
+          headers:
+            x-call-id:
+              schema:
+                type: string
+            x-final-model:
+              schema:
+                type: string
+            x-cost-usd:
+              schema:
+                type: string
+            x-saved-usd:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProxyResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '402':
+          description: Budget exceeded
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Error'
+                  - type: object
+                    properties:
+                      reason:
+                        type: string
+                      current_spend_usd:
+                        type: number
+                      limit_usd:
+                        type: number
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/budgets:
+    get:
+      summary: Get budget status
+      tags: [Budgets]
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Budget policy and current spend
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  policy:
+                    $ref: '#/components/schemas/BudgetPolicy'
+                  current:
+                    type: object
+                    properties:
+                      today_usd:
+                        type: number
+                      this_month_usd:
+                        type: number
+                      utilization_pct:
+                        type: number
+    post:
+      summary: Create or update budget policy
+      tags: [Budgets]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                monthly_limit_usd:
+                  type: number
+                daily_limit_usd:
+                  type: number
+                alert_at_80:
+                  type: boolean
+                alert_at_95:
+                  type: boolean
+                on_exhaustion:
+                  type: string
+      responses:
+        '200':
+          description: Policy updated
+
+  /v1/api-keys:
+    get:
+      summary: List API keys
+      tags: [API Keys]
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: List of API keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApiKey'
+    post:
+      summary: Create API key
+      tags: [API Keys]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                expires_in_days:
+                  type: integer
+      responses:
+        '200':
+          description: Created API key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  key:
+                    type: string
+                  created_at:
+                    type: string
+                  expires_at:
+                    type: string
+                    nullable: true
+
+  /v1/api-keys/{keyId}:
+    delete:
+      summary: Revoke API key
+      tags: [API Keys]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: keyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Key revoked
+
+  /v1/analytics/spend:
+    get:
+      summary: Get spend analytics
+      tags: [Analytics]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        '200':
+          description: Spend time series and real-time data
+
+  /v1/analytics/models:
+    get:
+      summary: Get model distribution
+      tags: [Analytics]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        '200':
+          description: Model distribution data
