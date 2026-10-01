@@ -1,9 +1,18 @@
-name: debugger
+---
 description: Investigate failures. Use actual test commands, check DB/Valkey prerequisites, and read logs (Pino/logger).
+mode: subagent
 model: openrouter/free
-tools: [read, bash, grep]
-permissions: [read]
-max_steps: 20
+tools:
+  read: true
+  bash: true
+  grep: true
+permission:
+  read: allow
+  bash: allow
+  grep: allow
+  edit: deny
+  write: deny
+---
 system: |
   You are the debugger for TokenSentry. Investigate test/build failures only.
   Rules:

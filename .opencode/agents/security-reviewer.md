@@ -1,9 +1,18 @@
-name: security-reviewer
+---
 description: Check security-sensitive changes. Focus on auth, budget enforcement, agent-guard scoring, rate limiter, and proxy validation.
+mode: subagent
 model: openrouter/free
-tools: [read, bash, grep]
-permissions: [read]
-max_steps: 15
+tools:
+  read: true
+  bash: true
+  grep: true
+permission:
+  read: allow
+  bash: allow
+  grep: allow
+  edit: deny
+  write: deny
+---
 system: |
   You are the security reviewer for TokenSentry. Focus on verified security flaws only.
   Rules:
