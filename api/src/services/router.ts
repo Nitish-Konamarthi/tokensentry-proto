@@ -16,6 +16,8 @@ interface PolicyEvaluation {
   isRequestedAllowed: boolean
   requestedTier?: string
   requestedProvider?: string
+  hasRestriction: boolean
+  unsupportedConfigured: string[]
 }
 
 class PolicyEvaluator {
@@ -23,7 +25,8 @@ class PolicyEvaluator {
     requestedModel: string
     orgPolicy: { allowed_models?: string[]; max_model_tier?: string }
   }): PolicyEvaluation {
-    const allowedModels = getAllowedModels(params.orgPolicy.allowed_models)
+    const allowedResult = getAllowedModels(params.orgPolicy.allowed_models)
+    const allowedModels = allowedResult.permitted
     const requestedModel = params.requestedModel
     const meta = getModelMetadata(requestedModel)
     return {
@@ -32,6 +35,8 @@ class PolicyEvaluator {
       isRequestedAllowed: allowedModels.includes(requestedModel),
       requestedTier: meta?.tier,
       requestedProvider: meta?.provider,
+      hasRestriction: allowedResult.hasRestriction,
+      unsupportedConfigured: allowedResult.unsupportedConfigured,
     }
   }
 }
@@ -50,13 +55,32 @@ class Router {
   }): Promise<RouterDecision> {
     const evaluation = this.policyEvaluator.evaluate(params)
 
+    // Determine permitted models based on policy
+    const permittedResult = evaluation.hasRestriction
+      ? getAllowedModels(params.orgPolicy.allowed_models)
+      : { permitted: Object.keys(MODEL_REGISTRY), hasRestriction: false, unsupportedConfigured: [] }
+    let permitted = permittedResult.permitted.filter(isKnownModel)
+
+    // Enforce max_model_tier if configured
+    if (params.orgPolicy.max_model_tier) {
+      const maxTierIndex = MODEL_TIERS.indexOf(params.orgPolicy.max_model_tier as typeof MODEL_TIERS[number])
+      if (maxTierIndex >= 0) {
+        permitted = permitted.filter(m => {
+          const meta = getModelMetadata(m)
+          return meta ? MODEL_TIERS.indexOf(meta.tier) <= maxTierIndex : false
+        })
+      }
+    }
+
+    // Handle unsupported configured allowed_models
+    const hasUnsupportedConfigured = evaluation.unsupportedConfigured.length > 0
+
     let approvedModel = evaluation.requestedModel
     let reasoning = 'Requested model is allowed by policy'
     let overridden = false
 
     if (!evaluation.isRequestedAllowed) {
       overridden = true
-      const permitted = evaluation.allowedModels.filter(isKnownModel)
       if (permitted.length > 0) {
         approvedModel = getBestPermittedModel(
           permitted,
@@ -64,7 +88,12 @@ class Router {
           params.preservePriority ?? 'accuracy'
         )
         reasoning = `Model ${evaluation.requestedModel} not allowed by policy (allowed: [${permitted.join(', ')}]). Using best permitted: ${approvedModel}.`
+      } else if (hasUnsupportedConfigured) {
+        // Policy configured but contains unsupported models; fall back to safe default
+        approvedModel = 'claude-haiku-4-5'
+        reasoning = `Model ${evaluation.requestedModel} not allowed. Policy configured unsupported models. Using safe default: ${approvedModel}.`
       } else {
+        // No permitted models available at all
         approvedModel = 'claude-haiku-4-5'
         reasoning = `Model ${evaluation.requestedModel} not allowed and no permitted models configured. Using default fallback: ${approvedModel}.`
       }

@@ -88,7 +88,8 @@ export function getModelFamily(model: string): string | undefined {
 }
 
 export function getCapabilityScore(model: string): number {
-  return MODEL_REGISTRY[model]?.capabilityScore ?? 0.5
+  // Unknown/unregistered models have NO trustworthy capability
+  return MODEL_REGISTRY[model]?.capabilityScore ?? 0
 }
 
 export function getModelTierIndex(model: string): number {
@@ -101,21 +102,50 @@ export function isKnownModel(model: string): boolean {
   return model in MODEL_REGISTRY
 }
 
-export function getAllowedModels(allowedModels?: string[]): string[] {
-  return allowedModels?.filter(m => isKnownModel(m)) ?? Object.keys(MODEL_REGISTRY)
+export function getAllowedModels(allowedModels?: string[]): { permitted: string[]; hasRestriction: boolean; unsupportedConfigured: string[] } {
+  if (!allowedModels || allowedModels.length === 0) {
+    return { permitted: Object.keys(MODEL_REGISTRY), hasRestriction: false, unsupportedConfigured: [] }
+  }
+  const permitted = allowedModels.filter(m => isKnownModel(m))
+  const unsupportedConfigured = allowedModels.filter(m => !isKnownModel(m))
+  return { permitted, hasRestriction: true, unsupportedConfigured }
 }
 
 export function getBestPermittedModel(
   allowedModels: string[],
   requestedModel: string,
-  preservePriority?: 'cost' | 'speed' | 'accuracy'
+  preservePriority?: 'cost' | 'speed' | 'accuracy',
+  maxModelTier?: string
 ): string {
   // Filter to only permitted known models
   const permitted = allowedModels.filter(m => isKnownModel(m))
-  if (permitted.length === 0) return 'claude-haiku-4-5' // safe default
+  if (permitted.length === 0) {
+    // Safe generic fallback: lowest tier registered model
+    const allKnown = Object.keys(MODEL_REGISTRY)
+    const lowest = allKnown.sort((a, b) => {
+      const tierA = MODEL_TIERS.indexOf(MODEL_REGISTRY[a]!.tier)
+      const tierB = MODEL_TIERS.indexOf(MODEL_REGISTRY[b]!.tier)
+      return tierA - tierB
+    })[0]
+    return lowest ?? 'claude-haiku-4-5'
+  }
+
+  // Apply max_model_tier constraint if configured
+  let constrainedPermitted = permitted
+  if (maxModelTier) {
+    const maxTierIndex = MODEL_TIERS.indexOf(maxModelTier as typeof MODEL_TIERS[number])
+    if (maxTierIndex >= 0) {
+      constrainedPermitted = permitted.filter(m => {
+        const meta = MODEL_REGISTRY[m]!
+        return MODEL_TIERS.indexOf(meta.tier) <= maxTierIndex
+      })
+    }
+  }
+
+  const permittedToSelect = constrainedPermitted.length > 0 ? constrainedPermitted : permitted
 
   // If requested is permitted, return it
-  if (permitted.includes(requestedModel)) return requestedModel
+  if (permittedToSelect.includes(requestedModel)) return requestedModel
 
   // Determine selection strategy
   const metaRequested = MODEL_REGISTRY[requestedModel]
@@ -123,7 +153,7 @@ export function getBestPermittedModel(
   const requestedProvider = metaRequested?.provider
 
   // Sort permitted models by tier level (ascending for cost/speed, descending for accuracy)
-  const sorted = permitted.slice().sort((a, b) => {
+  const sorted = permittedToSelect.slice().sort((a, b) => {
     const metaA = MODEL_REGISTRY[a]!
     const metaB = MODEL_REGISTRY[b]!
     const tierA = MODEL_TIERS.indexOf(metaA.tier)
@@ -154,5 +184,5 @@ export function getBestPermittedModel(
     }
   })
 
-  return sorted[0] ?? 'claude-haiku-4-5'
+  return sorted[0] ?? permittedToSelect[0] ?? 'claude-haiku-4-5'
 }
