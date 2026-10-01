@@ -7,8 +7,10 @@ import { routerService } from '../../services/router.js'
 import { providerRouter } from '../../services/provider-router.js'
 import { analyticsService } from '../../services/analytics.js'
 import { agentGuardService } from '../../services/agent-guard.js'
+import { orgRepo } from '../../repositories/org.js'
 
 import { env } from '../../config/env.js'
+import { getModelMetadata } from '../../services/model-metadata.js'
 import {
   computeRequestHash,
   estimateTokenCount,
@@ -122,11 +124,18 @@ export class DecisionEngine {
       }
     }
 
+    // Fetch organization's actual model policy
+    const orgData = await orgRepo.findById(ctx.organization.id)
+    const orgPolicy = (orgData?.modelPolicy as { allowed_models?: string[]; max_model_tier?: string }) ?? {
+      allowed_models: ['claude-haiku-4-5', 'claude-sonnet-4-6'],
+      max_model_tier: 'sonnet',
+    }
+
     const routeDecision = await routerService.route({
       requestedModel: ctx.request.payload.model,
       contextTokens,
       outputTokens,
-      orgPolicy: { allowed_models: ['claude-haiku-4-5', 'claude-sonnet-4-6'], max_model_tier: 'sonnet' },
+      orgPolicy,
       preservePriority: 'cost',
     })
 
@@ -408,15 +417,9 @@ export class DecisionEngine {
   }
 
   private calculateAnthropicCost(model: string, inputTokens: number, outputTokens: number): number {
-    const costs: Record<string, { input: number; output: number }> = {
-      'claude-haiku-4-5': { input: 0.80, output: 4.00 },
-      'claude-sonnet-4-6': { input: 3.00, output: 15.00 },
-      'claude-opus-4-6': { input: 15.00, output: 75.00 },
-    }
-
-    const c = costs[model]
-    if (!c) return 0
-    return (inputTokens / 1_000_000) * c.input + (outputTokens / 1_000_000) * c.output
+    const meta = getModelMetadata(model)
+    if (!meta || meta.provider !== 'anthropic' || !meta.cost) return 0
+    return (inputTokens / 1_000_000) * meta.cost.input + (outputTokens / 1_000_000) * meta.cost.output
   }
 }
 

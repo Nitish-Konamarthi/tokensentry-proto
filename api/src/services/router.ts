@@ -90,22 +90,13 @@ class Router {
         )
         reasoning = `Model ${evaluation.requestedModel} not allowed by policy (allowed: [${permitted.join(', ')}]). Using best permitted: ${approvedModel}.`
       } else if (hasUnsupportedConfigured) {
-        // Policy configured but contains unsupported models; use safe default from permitted candidates
-        // or lowest registered tier if none permitted (policy mismatch, not model gap)
-        approvedModel = permitted.length > 0 ? permitted[0] : (Object.keys(MODEL_REGISTRY).sort((a, b) => {
-          const tierA = MODEL_TIERS.indexOf(getModelMetadata(a)!.tier)
-          const tierB = MODEL_TIERS.indexOf(getModelMetadata(b)!.tier)
-          return tierA - tierB
-        })[0] ?? 'claude-haiku-4-5')
-        reasoning = `Model ${evaluation.requestedModel} not allowed. Policy configured unsupported models. Using safe default: ${approvedModel}.`
+        // Policy configured but contains unsupported models; return empty (unsupported-policy behavior)
+        approvedModel = ''
+        reasoning = `Model ${evaluation.requestedModel} not allowed. Policy configured unsupported models (${evaluation.unsupportedConfigured.join(', ')}). No supported permitted model available.`
       } else {
-        // No permitted models available at all (max_model_tier eliminated all, or bad policy)
-        approvedModel = permitted.length > 0 ? permitted[0] : (Object.keys(MODEL_REGISTRY).sort((a, b) => {
-          const tierA = MODEL_TIERS.indexOf(getModelMetadata(a)!.tier)
-          const tierB = MODEL_TIERS.indexOf(getModelMetadata(b)!.tier)
-          return tierA - tierB
-        })[0] ?? 'claude-haiku-4-5')
-        reasoning = `Model ${evaluation.requestedModel} not allowed and no permitted models configured. Using safe default: ${approvedModel}.`
+        // No permitted models available at all (max_model_tier eliminated all, or no restriction configured but no valid model)
+        approvedModel = ''
+        reasoning = `Model ${evaluation.requestedModel} not allowed and no permitted models available. No supported fallback.`
       }
     }
 
