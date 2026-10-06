@@ -9,6 +9,7 @@ export interface CallRecord {
   inputTokens: number; outputTokens: number; costMicros: number
   durationMs: number; cacheHit: boolean; streamed: boolean
   statusCode: number; error?: string
+  usageEstimated?: boolean
 }
 
 export class AnalyticsService {
@@ -39,6 +40,7 @@ export class AnalyticsService {
         streamed: params.streamed,
         statusCode: params.statusCode,
         error: params.error,
+        usageEstimated: params.usageEstimated,
       })
 
       return callId

@@ -19,6 +19,7 @@ export interface AnalyticsDispatchCall {
   streamed: boolean
   statusCode: number
   error?: string
+  usageEstimated?: boolean
   callId?: string
 }
 

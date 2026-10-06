@@ -1,26 +1,43 @@
 import type { FastifyRequest } from 'fastify'
-import { env } from '../config/env.js'
 
-const TRUSTED_CIDRS = env.TRUSTED_PROXY_CIDRS.split(',').map(s => s.trim()).filter(Boolean)
+export function getTrustedCidrs(): string[] {
+  const cidrs = process.env.TRUSTED_PROXY_CIDRS ?? '10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32'
+  return cidrs.split(',').map(s => s.trim()).filter(Boolean)
+}
 
 function ipToInt(ip: string): number {
   return ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0
 }
 
-function isInCidr(ip: string, cidr: string): boolean {
+/**
+ * Check if an IP address is within a CIDR range.
+ * Correctly handles all CIDR prefixes from /0 to /32.
+ */
+export function isInCidr(ip: string, cidr: string): boolean {
   try {
-    const [range, bits] = cidr.split('/')
-    if (!range || !bits) return false
-    const mask = ~(0xffffffff >>> parseInt(bits, 10)) >>> 0
-    return (ipToInt(ip) & mask) === (ipToInt(range) & mask)
+    const [range, bitsStr] = cidr.split('/')
+    if (!range || !bitsStr) return false
+
+    const bits = parseInt(bitsStr, 10)
+    if (bits < 0 || bits > 32) return false
+
+    // Calculate CIDR mask: for /n, mask has n leading 1s followed by (32-n) zeros
+    // For /32: mask = 0xffffffff (exact match)
+    // For /0: mask = 0 (matches everything)
+    const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0
+
+    const ipInt = ipToInt(ip)
+    const rangeInt = ipToInt(range)
+
+    return (ip & mask) === (range & mask)
   } catch {
     return false
   }
 }
 
-function isTrustedProxy(ip: string): boolean {
+export function isTrustedProxy(ip: string): boolean {
   if (ip === '127.0.0.1' || ip === '::1') return true
-  return TRUSTED_CIDRS.some(cidr => isInCidr(ip, cidr))
+  return getTrustedCidrs().some(cidr => isInCidr(ip, cidr))
 }
 
 export function extractClientIp(request: FastifyRequest): string {

@@ -8,8 +8,8 @@ import { providerRouter } from '../../services/provider-router.js'
 import { analyticsService } from '../../services/analytics.js'
 import { agentGuardService } from '../../services/agent-guard.js'
 import { orgRepo } from '../../repositories/org.js'
+import { getProviderApiKey } from '../../services/provider-credentials.js'
 
-import { env } from '../../config/env.js'
 import { getModelMetadata } from '../../services/model-metadata.js'
 import {
   computeRequestHash,
@@ -205,11 +205,11 @@ export class DecisionEngine {
     }
 
     await apiKeyRepo.findByOrg(ctx.organization.id)
-    const platformKey = process.env['ANTHROPIC_API_KEY']
+    const platformKey = getProviderApiKey(provider)
     if (!platformKey) {
       return {
         statusCode: 500,
-        body: { error: 'CONFIG_ERROR', message: 'No AI provider API key configured' },
+        body: { error: 'CONFIG_ERROR', message: 'Required provider is not configured' },
       }
     }
 
@@ -276,6 +276,7 @@ export class DecisionEngine {
               cacheHit: false,
               streamed: true,
               statusCode: 200,
+              usageEstimated: true,
             })
           },
         }

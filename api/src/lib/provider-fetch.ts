@@ -9,16 +9,56 @@ export interface FetchOptions {
   maxRetries?: number
 }
 
-export interface ProviderError {
-  status: number
-  message: string
-  retryable: boolean
-  provider: string
+export type ProviderErrorCode =
+  | 'PROVIDER_AUTH'
+  | 'PROVIDER_RATE_LIMIT'
+  | 'PROVIDER_BAD_REQUEST'
+  | 'PROVIDER_UNAVAILABLE'
+  | 'PROVIDER_TIMEOUT'
+  | 'PROVIDER_NETWORK'
+  | 'PROVIDER_ERROR'
+
+export class ProviderRequestError extends Error {
+  public readonly code: ProviderErrorCode
+  public readonly status: number
+  public readonly provider: string
+  public readonly retryable: boolean
+
+  constructor(code: ProviderErrorCode, message: string, provider: string, status: number, retryable: boolean) {
+    super(message)
+    this.name = 'ProviderRequestError'
+    this.code = code
+    this.status = status
+    this.provider = provider
+    this.retryable = retryable
+  }
 }
 
 const NON_RETRYABLE_STATUSES = new Set([
   400, 401, 403, 404, 405, 422, 429,
 ])
+
+function classifyProviderError(status: number, provider: string, message: string): ProviderRequestError {
+  let code: ProviderErrorCode
+  let retryable = false
+
+  if (status === 401 || status === 403) {
+    code = 'PROVIDER_AUTH'
+  } else if (status === 429) {
+    code = 'PROVIDER_RATE_LIMIT'
+    // Rate limit errors are retryable after a delay
+    // retryable = false (handled by retry logic with backoff)
+  } else if (status === 400 || status === 422) {
+    code = 'PROVIDER_BAD_REQUEST'
+  } else if (status >= 500) {
+    code = 'PROVIDER_UNAVAILABLE'
+    retryable = true
+  } else {
+    code = 'PROVIDER_ERROR'
+  }
+
+  return new ProviderRequestError(code, message, provider, status, retryable)
+}
 
 export async function fetchWithTimeoutAndRetry(
   options: FetchOptions,
@@ -54,15 +94,19 @@ export async function fetchWithTimeoutAndRetry(
           continue
         }
 
-        const errorMsg = `Provider ${providerName} error: ${response.status}`
-        logger.error({ provider: providerName, status: response.status, body: bodyText.slice(0, 200) }, errorMsg)
-        throw new Error(errorMsg)
+        // Classify the error and throw a typed error
+        throw classifyProviderError(response.status, providerName, `Provider ${providerName} error: ${response.status}`)
       }
 
       return response
     } catch (err: any) {
       if (timeoutId) clearTimeout(timeoutId)
       lastError = err
+
+      // Re-throw ProviderRequestError as-is
+      if (err instanceof ProviderRequestError) {
+        throw err
+      }
 
       const isTimeout = err.name === 'AbortError' || err.message?.includes('timeout') || err.message?.includes('abort')
       const isNetworkError = err.name === 'TypeError' || err.message?.includes('fetch') || err.message?.includes('network')

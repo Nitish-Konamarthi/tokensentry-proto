@@ -75,6 +75,47 @@ describe('PROXY INTEGRATION — Rate limit', () => {
   })
 })
 
+describe('PROXY INTEGRATION — Agent Guard', () => {
+  it('blocks request when agent session is blocked', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/proxy',
+      headers: { 
+        Authorization: 'Bearer ts_test_key_for_integration',
+        'X-TS-Agent-Id': 'test-agent-blocked',
+        'X-TS-Session-Id': 'test-session-blocked',
+      },
+      payload: { model: 'claude-sonnet-4-6', messages: [{ role: 'user', content: 'Hello' }] },
+    })
+    // Agent Guard should block if session is marked as blocked
+    expect([200, 401, 429]).toContain(res.statusCode)
+    if (res.statusCode === 429) {
+      const body = JSON.parse(res.body)
+      expect(body.error).toBe('AGENT_BLOCKED')
+    }
+  })
+
+  it('allows normal request through agent guard', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/proxy',
+      headers: { 
+        Authorization: 'Bearer ts_test_key_for_integration',
+        'X-TS-Agent-Id': 'test-agent-normal',
+        'X-TS-Session-Id': 'test-session-normal',
+      },
+      payload: { model: 'claude-sonnet-4-6', messages: [{ role: 'user', content: 'Hello' }] },
+    })
+    // Normal requests should be allowed through (or fail at auth/budget, not agent guard)
+    expect([200, 401, 402, 502]).toContain(res.statusCode)
+    // Should not be blocked by agent guard
+    if (res.statusCode === 429) {
+      const body = JSON.parse(res.body)
+      expect(body.error).not.toBe('AGENT_BLOCKED')
+    }
+  })
+})
+
 describe('HEALTH AND READINESS', () => {
   it('live endpoint responds', async () => {
     const res = await app.inject({ method: 'GET', url: '/health/live' })

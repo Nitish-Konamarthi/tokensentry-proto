@@ -101,7 +101,7 @@ export class BudgetService {
     const dailyKey = ValkeyKeys.budgetDaily(params.orgId, today)
 
     try {
-      if (params.actualCostMicros > 0) {
+      if (params.actualCostMicros !== 0) {
         await valkey.incrbyfloat(monthlyKey, params.actualCostMicros)
         await valkey.expire(monthlyKey, 2592000)
         await valkey.incrbyfloat(dailyKey, params.actualCostMicros)

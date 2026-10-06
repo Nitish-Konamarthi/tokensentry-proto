@@ -18,9 +18,10 @@ import { settingsRoutes } from './routes/settings.js'
 import { teamRoutes } from './routes/team.js'
 
 export async function buildApp(): Promise<FastifyInstance> {
+  const trustedProxies = env.TRUSTED_PROXY_CIDRS.split(',').map(s => s.trim()).filter(Boolean)
   const app = Fastify({
     logger: false,
-    trustProxy: true,
+    trustProxy: trustedProxies.length > 0 ? trustedProxies : true,
     requestIdHeader: 'x-request-id',
     requestIdLogLabel: 'requestId',
     genReqId: () => crypto.randomUUID(),
@@ -29,8 +30,25 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Plugins
   await app.register(helmet, {
-    contentSecurityPolicy: false,
-    hsts: false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'https:'],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+      },
+    },
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true,
+    },
     crossOriginResourcePolicy: { policy: 'cross-origin' },
   })
 
@@ -44,7 +62,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       cb(null, allowed)
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Authorization', 'Content-Type', 'X-TS-Team-Id', 'X-TS-User-Id'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-TS-Team-Id', 'X-TS-User-Id', 'X-TS-Agent-Id', 'X-TS-Session-Id'],
     credentials: true,
   })
 

@@ -13,6 +13,20 @@ export interface ProviderHealthState {
   lastCheckedAt: number
 }
 
+export class UnsupportedModelError extends Error {
+  constructor(model: string) {
+    super(`Model '${model}' is not supported`)
+    this.name = 'UnsupportedModelError'
+  }
+}
+
+export class ProviderUnavailableError extends Error {
+  constructor(provider: string) {
+    super(`Provider '${provider}' is currently unavailable`)
+    this.name = 'ProviderUnavailableError'
+  }
+}
+
 interface ProviderRouteParams {
   provider: ProviderType
   model: string
@@ -27,7 +41,10 @@ interface ProviderRouteParams {
 export class ProviderRouterService {
   async route(params: ProviderRouteParams): Promise<Response> {
     // Check provider health before calling
-    const healthy = await this.checkProviderHealth(params.provider)
+    const health = await this.checkProviderHealth(params.provider)
+    if (!health.healthy) {
+      throw new ProviderUnavailableError(params.provider)
+    }
 
     switch (params.provider) {
       case 'anthropic':
@@ -45,8 +62,10 @@ export class ProviderRouterService {
 
   resolveProvider(model: string): ProviderType {
     const provider = getModelProvider(model)
-    if (provider) return provider
-    return 'openai' // safe generic default for unsupported/unknown models
+    if (!provider) {
+      throw new UnsupportedModelError(model)
+    }
+    return provider
   }
 
   async checkProviderHealth(provider: ProviderType): Promise<ProviderHealthState> {
