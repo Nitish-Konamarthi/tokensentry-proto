@@ -10,6 +10,7 @@ export interface CallRecord {
   durationMs: number; cacheHit: boolean; streamed: boolean
   statusCode: number; error?: string
   usageEstimated?: boolean
+  callId?: string
 }
 
 export class AnalyticsService {
@@ -41,11 +42,12 @@ export class AnalyticsService {
         statusCode: params.statusCode,
         error: params.error,
         usageEstimated: params.usageEstimated,
+        callId: params.callId,
       })
 
       return callId
     } catch (err) {
-      const callId = ''
+      const callId = params.callId ?? ''
       logger.error({ err, callId }, 'Failed to dispatch call analytics')
       return callId
     }

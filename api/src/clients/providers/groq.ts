@@ -16,7 +16,7 @@ export async function callGroq(params: {
     ? [{ role: 'system', content: params.system }, ...params.messages]
     : params.messages
 
-  const response = await fetchWithTimeoutAndRetry({
+  return fetchWithTimeoutAndRetry({
     url: `${BASE_URL}/chat/completions`,
     method: 'POST',
     headers: {
@@ -30,12 +30,4 @@ export async function callGroq(params: {
       temperature: params.temperature ?? 1,
     }),
   }, 'groq')
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => '')
-    logger.error({ status: response.status, body }, 'Groq API error')
-    throw new Error(`Groq API error: ${response.status} ${body}`)
-  }
-
-  return response
 }

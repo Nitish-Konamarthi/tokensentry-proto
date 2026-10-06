@@ -62,10 +62,10 @@ export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
 
       return reply.code(decision.statusCode).send(decision.body)
     } catch (err) {
-      logger.error({ err, callId }, 'Proxy error')
-      return reply.code(502).send({
-        error: 'PROXY_ERROR',
-        message: 'Failed to forward request to AI provider',
+      logger.error({ err, callId }, 'Proxy error - unexpected failure')
+      return reply.code(500).send({
+        error: 'INTERNAL_ERROR',
+        message: 'An unexpected error occurred',
         call_id: callId,
       })
     }

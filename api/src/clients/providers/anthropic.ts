@@ -19,7 +19,7 @@ export async function callAnthropic(params: {
   temperature?: number
   stream?: boolean
 }): Promise<Response> {
-  const response = await fetchWithTimeoutAndRetry({
+  return fetchWithTimeoutAndRetry({
     url: `${BASE_URL}/messages`,
     method: 'POST',
     headers: {
@@ -36,14 +36,6 @@ export async function callAnthropic(params: {
       stream: params.stream ?? false,
     }),
   }, 'anthropic')
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => '')
-    logger.error({ status: response.status, body }, 'Anthropic API error')
-    throw new Error(`Anthropic API error: ${response.status} ${body}`)
-  }
-
-  return response
 }
 
 export function calculateAnthropicCost(model: string, inputTokens: number, outputTokens: number): number {

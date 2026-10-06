@@ -38,6 +38,7 @@ No ungraceful exits in production mode.
 - Analytics aggregated in PostgreSQL + Valkey counters (not ClickHouse). Real-time spans not implemented.
 - Dashboard pages: providers, team, audit-log, settings use live API; advisor uses demo/static data.
 - No email notifications (Resend not implemented).
-- Security headers disabled by default (CSP: false, HSTS: false) — re-enable explicitly for HTTPS.
-- Provider clients use native fetch (no SDK-level retry abstraction beyond provider-fetch wrapper: max 2 retries, 10s timeout, 4xx non-retryable).
-- Integration tests require live PostgreSQL + Valkey (tests/integration/health.test.ts has 4 tests). Only 57 total tests exist.
+- Security headers enabled (CSP configured, HSTS enabled via `helmet`). `TRUSTED_PROXY_CIDRS` defines trusted proxies; `trustProxy` defaults to `false` when empty.
+- Provider clients use native fetch with typed error classification (`ProviderRequestError`). Provider errors distinguish: `PROVIDER_AUTH`, `PROVIDER_RATE_LIMIT`, `PROVIDER_BAD_REQUEST`, `PROVIDER_UNAVAILABLE`, `PROVIDER_TIMEOUT`, `PROVIDER_NETWORK`, `PROVIDER_ERROR`. Retries applied to 5xx/timeout/network only (not 400/401/403/404/405/422/429).
+- Budget enforcement: organization-level only in V1 (`budget:monthly:{orgId}:{yyyyMm}`, `budget:daily:{orgId}:{date}`). Atomic Valkey Lua reserves estimated cost; releases on provider failure; reconciles actual - estimated after success.
+- Integration tests: `tests/integration/health.test.ts` (4 tests). Unit tests: 117 behavioral and integration tests across 12 files.

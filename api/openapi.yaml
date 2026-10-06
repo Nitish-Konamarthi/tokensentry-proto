@@ -137,6 +137,7 @@ components:
       properties:
         error:
           type: string
+          enum: [UNAUTHORIZED, VALIDATION_ERROR, BUDGET_EXCEEDED, BUDGET_CHECK_UNAVAILABLE, UNSUPPORTED_MODEL, PROVIDER_UNAVAILABLE, PROVIDER_AUTH, PROVIDER_RATE_LIMIT, PROVIDER_BAD_REQUEST, PROVIDER_TIMEOUT, PROVIDER_NETWORK, PROVIDER_ERROR, AGENT_BLOCKED, CONFIG_ERROR, INTERNAL_ERROR, NOT_FOUND, RATE_LIMITED, PROXY_ERROR]
         message:
           type: string
         call_id:
@@ -168,7 +169,7 @@ paths:
       tags: [Health]
       responses:
         '200':
-          description: OK
+          description: OK — all dependencies ready
           content:
             application/json:
               schema:
@@ -176,10 +177,29 @@ paths:
                 properties:
                   status:
                     type: string
+                    enum: [ok]
                   database:
                     type: string
+                    enum: [ok]
                   valkey:
                     type: string
+                    enum: [ok]
+        '503':
+          description: Degraded — required dependency unavailable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [degraded]
+                  database:
+                    type: string
+                    enum: [ok, down]
+                  valkey:
+                    type: string
+                    enum: [ok, down]
 
   /v1/proxy:
     post:
@@ -216,8 +236,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProxyResponse'
+        '400':
+          description: Validation or provider bad request error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
-          description: Unauthorized
+          description: Unauthorized or provider auth error
           content:
             application/json:
               schema:
@@ -238,7 +264,25 @@ paths:
                       limit_usd:
                         type: number
         '429':
-          description: Rate limited
+          description: Rate limited or agent blocked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal or configuration error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: Provider unavailable or network error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Provider timeout
           content:
             application/json:
               schema:

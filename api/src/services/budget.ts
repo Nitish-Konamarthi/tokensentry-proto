@@ -3,6 +3,10 @@ import { budgetRepo } from '../repositories/budget.js'
 import { logger } from '../lib/logger.js'
 import type { BudgetResult } from '../types/index.js'
 
+// V1 Budget Enforcement: Organization-level only.
+// Team/user-level budget enforcement is not implemented in V1.
+// The teamId/userId parameters are accepted for API compatibility but not used.
+
 const BUDGET_CHECK_SCRIPT = `
 local monthly_key = KEYS[1]
 local daily_key = KEYS[2]
@@ -33,9 +37,32 @@ local new_monthly = monthly + cost
 return {1, 'approved', tostring(new_monthly), tostring(monthly_limit)}
 `
 
+const BUDGET_RELEASE_SCRIPT = `
+local monthly_key = KEYS[1]
+local daily_key = KEYS[2]
+local cost = tonumber(ARGV[1])
+
+local monthly = tonumber(redis.call('GET', monthly_key) or '0')
+local daily = tonumber(redis.call('GET', daily_key) or '0')
+
+local new_monthly = math.max(0, monthly - cost)
+local new_daily = math.max(0, daily - cost)
+
+redis.call('SET', monthly_key, new_monthly)
+redis.call('SET', daily_key, new_daily)
+
+local ttl = redis.call('TTL', monthly_key)
+if ttl == -1 then
+  redis.call('EXPIRE', monthly_key, 2592000)
+end
+redis.call('EXPIRE', daily_key, 86400)
+
+return {1, 'released', tostring(new_monthly)}
+`
+
 export class BudgetService {
   async checkAndDeduct(params: {
-    orgId: string; teamId: string; userId: string
+    orgId: string
     estimatedCostMicros: number
   }): Promise<BudgetResult> {
     const now = new Date()
@@ -45,7 +72,7 @@ export class BudgetService {
     const monthlyKey = ValkeyKeys.budgetMonthly(params.orgId, yyyyMm)
     const dailyKey = ValkeyKeys.budgetDaily(params.orgId, today)
 
-    // Get budget limits from DB
+    // Get budget limits from DB (org-level only in V1)
     const policy = await budgetRepo.findOrgPolicy(params.orgId)
     const monthlyLimit = policy ? Math.floor(parseFloat(policy.monthlyLimitMicros)) : 500_000_000
     const dailyLimit = policy?.dailyLimitMicros ? Math.floor(parseFloat(policy.dailyLimitMicros)) : 0
@@ -89,8 +116,30 @@ export class BudgetService {
     }
   }
 
+  async releaseReservation(params: {
+    orgId: string
+    estimatedCostMicros: number
+  }): Promise<void> {
+    const now = new Date()
+    const yyyyMm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const today = now.toISOString().split('T')[0]!
+
+    const monthlyKey = ValkeyKeys.budgetMonthly(params.orgId, yyyyMm)
+    const dailyKey = ValkeyKeys.budgetDaily(params.orgId, today)
+
+    try {
+      await valkey.eval(
+        BUDGET_RELEASE_SCRIPT, 2,
+        monthlyKey, dailyKey,
+        params.estimatedCostMicros.toFixed(4),
+      )
+    } catch (err) {
+      logger.warn({ err, orgId: params.orgId }, 'Budget reservation release failed')
+    }
+  }
+
   async recordActualCost(params: {
-    orgId: string; teamId?: string; userId?: string
+    orgId: string
     actualCostMicros: number
   }): Promise<void> {
     const now = new Date()

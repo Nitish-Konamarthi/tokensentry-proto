@@ -21,7 +21,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   const trustedProxies = env.TRUSTED_PROXY_CIDRS.split(',').map(s => s.trim()).filter(Boolean)
   const app = Fastify({
     logger: false,
-    trustProxy: trustedProxies.length > 0 ? trustedProxies : true,
+    trustProxy: trustedProxies.length > 0 ? trustedProxies : false,
     requestIdHeader: 'x-request-id',
     requestIdLogLabel: 'requestId',
     genReqId: () => crypto.randomUUID(),

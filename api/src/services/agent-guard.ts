@@ -259,7 +259,6 @@ export class AgentGuardService {
   ): Promise<AgentStats> {
     const now = input.timestamp
     const toolCountInMessage = countToolsInMessages(messages)
-    const isRetry = detectRetry(messages)
 
     try {
       const result = await valkey.eval(
@@ -274,10 +273,6 @@ export class AgentGuardService {
         input.provider, toolCountInMessage.toFixed(0),
         input.agentId, input.orgId,
       )
-
-      if (isRetry) {
-        await valkey.hincrby(ValkeyKeys.agentStats(sessionId), 'retry_count', 1)
-      }
     } catch (err) {
       logger.warn({ err, sessionId }, 'Agent guard record turn failed — continuing')
     }

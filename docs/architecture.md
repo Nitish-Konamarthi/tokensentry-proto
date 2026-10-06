@@ -28,11 +28,13 @@ Client POST /v1/proxy
 - Shared types must rebuild (`npm run build`) before API/dashboard use changes.
 - No Kubernetes, Kafka, ClickHouse. Single VPS deployment via Docker Compose.
 
-## Security Notes (verified flaws)
-- `trustProxy: true` without strict proxy validation — `extractClientIp` must sanitize `X-Forwarded-For`.
-- Security headers disabled (`contentSecurityPolicy: false`, `hsts: false`).
-- `optionalAuth` silently swallows errors — hidden auth failures possible.
-- Rate limiter race: `multi().exec()` then separate `pexpire()`.
+## Security Notes (verified fixes)
+- `trustProxy`: configured from `TRUSTED_PROXY_CIDRS`; defaults to `false` when empty (not `true`).
+- `extractClientIp`: single parser used by auth middleware and rate limiter; sanitizes `X-Forwarded-For` using `TRUSTED_PROXY_CIDRS`.
+- Security headers enabled (`CSP` configured, `HSTS` enabled via `helmet`).
+- `optionalAuth`: logs failures silently but does not expose errors to clients.
+- Rate limiter: atomic Valkey Lua (`eval` with `INCR` + `PEXPIRE` combined) — no separate `pexpire()` race.
+- Provider errors: typed (`ProviderRequestError`) with safe responses (`{ error, message, call_id }`); no provider response bodies or keys exposed.
 
 ## Data Storage
 - PostgreSQL 16 (10 tables: organizations, api_keys, budgets, usage_logs, etc.) — persistent.

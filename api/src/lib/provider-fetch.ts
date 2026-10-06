@@ -121,6 +121,15 @@ export async function fetchWithTimeoutAndRetry(
     }
   }
 
-  const status = (lastError as any)?.status ?? 502
-  throw new Error(`Provider ${providerName} failed after ${maxRetries} retries: ${(lastError as Error)?.message ?? 'Unknown error'}`)
+  const isTimeout = lastError?.name === 'AbortError' || lastError?.message?.includes('timeout') || lastError?.message?.includes('abort')
+  const isNetworkError = lastError?.name === 'TypeError' || lastError?.message?.includes('fetch') || lastError?.message?.includes('network')
+
+  if (isTimeout) {
+    throw new ProviderRequestError('PROVIDER_TIMEOUT', `Provider ${providerName} request timed out`, providerName, 504, true)
+  }
+  if (isNetworkError) {
+    throw new ProviderRequestError('PROVIDER_NETWORK', `Provider ${providerName} network error`, providerName, 502, true)
+  }
+
+  throw new ProviderRequestError('PROVIDER_ERROR', `Provider ${providerName} failed: ${(lastError as Error)?.message ?? 'Unknown error'}`, providerName, 502, false)
 }

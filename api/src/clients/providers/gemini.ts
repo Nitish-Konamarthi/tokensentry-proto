@@ -26,7 +26,7 @@ export async function callGemini(params: {
 
   const url = `${BASE_URL}/models/${params.model}:${params.stream ? 'streamGenerateContent' : 'generateContent'}?key=${params.apiKey}`
 
-  const response = await fetchWithTimeoutAndRetry({
+  return fetchWithTimeoutAndRetry({
     url,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -39,14 +39,6 @@ export async function callGemini(params: {
       },
     }),
   }, 'gemini')
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => '')
-    logger.error({ status: response.status, body }, 'Gemini API error')
-    throw new Error(`Gemini API error: ${response.status} ${body}`)
-  }
-
-  return response
 }
 
 export function calculateGeminiCost(model: string, inputTokens: number, outputTokens: number): number {

@@ -29,7 +29,7 @@ export function isInCidr(ip: string, cidr: string): boolean {
     const ipInt = ipToInt(ip)
     const rangeInt = ipToInt(range)
 
-    return (ip & mask) === (range & mask)
+    return (ipInt & mask) === (rangeInt & mask)
   } catch {
     return false
   }

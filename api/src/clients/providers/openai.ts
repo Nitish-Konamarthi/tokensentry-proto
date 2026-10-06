@@ -26,7 +26,7 @@ export async function callOpenAI(params: {
     ? [{ role: 'system', content: params.system }, ...params.messages]
     : params.messages
 
-  const response = await fetchWithTimeoutAndRetry({
+  return fetchWithTimeoutAndRetry({
     url: `${BASE_URL}/chat/completions`,
     method: 'POST',
     headers: {
@@ -41,14 +41,6 @@ export async function callOpenAI(params: {
       stream: params.stream ?? false,
     }),
   }, 'openai')
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => '')
-    logger.error({ status: response.status, body }, 'OpenAI API error')
-    throw new Error(`OpenAI API error: ${response.status} ${body}`)
-  }
-
-  return response
 }
 
 export function calculateOpenAICost(model: string, inputTokens: number, outputTokens: number): number {

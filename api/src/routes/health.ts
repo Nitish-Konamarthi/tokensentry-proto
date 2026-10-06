@@ -9,19 +9,20 @@ export async function healthRoutes(fastify: FastifyInstance): Promise<void> {
     timestamp: new Date().toISOString(),
   }))
 
-  fastify.get('/health/ready', async () => {
+  fastify.get('/health/ready', async (request, reply) => {
     const [db, valkey] = await Promise.all([checkPgHealth(), checkValkeyHealth()])
+    const dbOk = db === true
+    const valkeyOk = valkey === true
 
-    if (!db && !valkey) {
-      return { status: 'degraded', database: 'down', valkey: 'down' }
-    }
-    if (!db) {
-      return { status: 'degraded', database: 'down', valkey: valkey ? 'ok' : 'down' }
-    }
-    if (!valkey) {
-      return { status: 'degraded', database: db ? 'ok' : 'down', valkey: 'down' }
+    if (dbOk && valkeyOk) {
+      return reply.code(200).send({ status: 'ok', database: 'ok', valkey: 'ok' })
     }
 
-    return { status: 'ok', database: 'ok', valkey: 'ok' }
+    // V1 readiness: fail-closed if required dependency unavailable
+    return reply.code(503).send({
+      status: 'degraded',
+      database: dbOk ? 'ok' : 'down',
+      valkey: valkeyOk ? 'ok' : 'down',
+    })
   })
 }
