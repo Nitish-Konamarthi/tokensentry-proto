@@ -1,6 +1,5 @@
 import type { FastifyReply } from 'fastify'
 import { logger } from '../../lib/logger.js'
-import { apiKeyRepo } from '../../repositories/api-key.js'
 import { agentGuardRepo } from '../../repositories/agent-guard.js'
 import { budgetService } from '../../services/budget.js'
 import { routerService } from '../../services/router.js'
@@ -226,7 +225,6 @@ export class DecisionEngine {
       }
     }
 
-    await apiKeyRepo.findByOrg(ctx.organization.id)
     const platformKey = await getProviderApiKey(provider, ctx.organization.id)
     if (!platformKey) {
       return {
@@ -341,6 +339,13 @@ export class DecisionEngine {
                 orgId: ctx.organization.id,
                 actualCostMicros: finalCostMicros - estimatedCostMicros,
               })
+            } else if (streamError) {
+              // Stream failed without reliable usage: release estimated reservation
+              await budgetService.releaseReservation({
+                orgId: ctx.organization.id,
+                estimatedCostMicros,
+              })
+              finalCostMicros = 0
             }
 
             void analyticsService.recordCall({
@@ -480,13 +485,19 @@ export class DecisionEngine {
         void agentGuardService.incrementErrors(ctx.agent.sessionId)
       }
 
-      void providerRouter.markProviderError(provider)
-
       if (providerErr instanceof ProviderRequestError) {
         await budgetService.releaseReservation({
           orgId: ctx.organization.id,
           estimatedCostMicros,
         })
+
+        // Only mark provider unhealthy for infrastructure/availability failures
+        const healthDegradingCodes = new Set([
+          'PROVIDER_UNAVAILABLE', 'PROVIDER_TIMEOUT', 'PROVIDER_NETWORK', 'PROVIDER_ERROR'
+        ])
+        if (healthDegradingCodes.has(providerErr.code)) {
+          void providerRouter.markProviderError(provider)
+        }
 
         const statusCodeMap: Record<string, number> = {
           PROVIDER_AUTH: 401,
