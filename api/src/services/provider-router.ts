@@ -5,6 +5,7 @@ import { callGemini } from '../clients/providers/gemini.js'
 import { callGroq } from '../clients/providers/groq.js'
 import { logger } from '../lib/logger.js'
 import type { ProviderType } from '../types/index.js'
+import { getModelProvider, MODEL_REGISTRY } from './model-metadata.js'
 
 export interface ProviderHealthState {
   provider: ProviderType
@@ -43,11 +44,9 @@ export class ProviderRouterService {
   }
 
   resolveProvider(model: string): ProviderType {
-    if (model.startsWith('claude')) return 'anthropic'
-    if (model.startsWith('gpt') || model.startsWith('o3') || model.startsWith('o4')) return 'openai'
-    if (model.startsWith('gemini')) return 'gemini'
-    if (model.startsWith('llama') || model.startsWith('mixtral')) return 'groq'
-    return 'openai'
+    const provider = getModelProvider(model)
+    if (provider) return provider
+    return 'openai' // safe generic default for unsupported/unknown models
   }
 
   async checkProviderHealth(provider: ProviderType): Promise<ProviderHealthState> {
