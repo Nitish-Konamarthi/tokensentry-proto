@@ -4,33 +4,35 @@ on:
   push:
     branches: [main]
     paths:
-      - 'nginx/**'
-      - 'docker-compose.yml'
-      - 'otel/**'
-      - 'scripts/**'
+      - 'infrastructure/nginx/**'
+      - 'infrastructure/docker-compose.yml'
+      - 'infrastructure/scripts/**'
   pull_request:
     branches: [main]
     paths:
-      - 'nginx/**'
-      - 'docker-compose.yml'
-      - 'otel/**'
-      - 'scripts/**'
+      - 'infrastructure/nginx/**'
+      - 'infrastructure/docker-compose.yml'
+      - 'infrastructure/scripts/**'
 
 jobs:
   validate:
     name: Validate configs
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Validate docker-compose.yml syntax
-        run: docker compose config --quiet
+        run: docker compose -f infrastructure/docker-compose.yml config --quiet
 
       - name: Validate NGINX config syntax
         run: |
-          docker run --rm -v ${{ github.workspace }}/nginx:/etc/nginx:ro nginx:1.27-alpine nginx -t
+          docker run --rm \
+            -v ${{ github.workspace }}/infrastructure/nginx:/etc/nginx:ro \
+            nginx:1.27-alpine \
+            nginx -t
 
       - name: Validate shell scripts
         run: |
-          shellcheck scripts/*.sh
+          shellcheck infrastructure/scripts/*.sh
         continue-on-error: true

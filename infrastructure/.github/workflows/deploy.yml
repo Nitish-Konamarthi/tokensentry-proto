@@ -45,6 +45,3 @@ jobs:
 
             # Restart Website if code changed
             docker compose up -d --no-deps website
-
-            # Restart OTel if config changed
-            docker compose up -d --no-deps otel-collector

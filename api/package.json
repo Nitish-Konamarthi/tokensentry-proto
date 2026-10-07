@@ -1,7 +1,7 @@
 {
   "name": "tokensentry-api",
   "version": "1.0.0",
-  "description": "Enterprise AI Token Governance Platform — Drop-in proxy that saves 50-80% on AI API costs",
+  "description": "Governance and budgeting layer for Coding Tools",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
