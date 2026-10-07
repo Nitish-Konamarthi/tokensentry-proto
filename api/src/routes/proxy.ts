@@ -5,7 +5,6 @@ import { proxyRateLimit } from '../middleware/rate-limit.js'
 import { proxyRequestBodySchema } from '../validators/proxy.js'
 import { createRequestContext } from '../intelligence/request-context.js'
 import { decisionEngine } from '../intelligence/decision-engine/DecisionEngine.js'
-import { randomUUID } from 'crypto'
 
 interface ProxyBody {
   model: string
@@ -21,7 +20,7 @@ export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
     preHandler: [requireApiKey, proxyRateLimit],
     schema: { body: proxyRequestBodySchema },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
-    const callId = randomUUID()
+    const callId = request.callId
     const startTime = Date.now()
     const body = request.body as ProxyBody
     const authContext = request.authContext

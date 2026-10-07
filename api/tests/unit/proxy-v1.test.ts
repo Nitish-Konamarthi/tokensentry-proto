@@ -45,22 +45,36 @@ vi.mock('../../src/services/auth.js', () => ({
     }),
   },
 }))
+vi.mock('../../src/intelligence/decision-engine/DecisionEngine.js', () => ({
+  decisionEngine: { decide: vi.fn() },
+}))
 import { proxyRoutes } from '../../src/routes/proxy.js'
 import Fastify from 'fastify'
+import { decisionEngine } from '../../src/intelligence/decision-engine/DecisionEngine.js'
+import { valkey } from '../../src/clients/valkey.js'
 describe('V1 AI Proxy', () => {
   let app: any
   beforeEach(async () => {
+    vi.clearAllMocks()
+    vi.mocked(valkey.eval).mockResolvedValue([1, 60_000, 100])
     app = Fastify({ logger: false })
+    app.decorateRequest('callId', 'test-call-id')
     await proxyRoutes(app)
     app.ready()
   })
   it('successful request', async () => {
+    vi.mocked(decisionEngine.decide).mockResolvedValue({
+      statusCode: 200,
+      body: { model: 'claude-sonnet-4-6', choices: [] },
+    })
     const res = await app.inject({
       method: 'POST', url: '/v1/proxy',
       headers: { authorization: 'Bearer ts_valid_key_12345678' },
       payload: { model: 'claude-sonnet-4-6', messages: [{ role: 'user', content: 'Hello' }], stream: false },
     })
-    expect([200, 429, 502]).toContain(res.statusCode)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ model: 'claude-sonnet-4-6', choices: [] })
+    expect(res.headers['x-call-id']).toBe('test-call-id')
   })
   it('authentication failure', async () => {
     const res = await app.inject({
@@ -79,11 +93,19 @@ describe('V1 AI Proxy', () => {
     expect(res.statusCode).toBe(400)
   })
   it('streaming preserved', async () => {
+    vi.mocked(decisionEngine.decide).mockResolvedValue({
+      statusCode: 200,
+      streamHandler: async (reply: any) => {
+        reply.type('text/event-stream').send('data: streamed\n\n')
+      },
+    })
     const res = await app.inject({
       method: 'POST', url: '/v1/proxy',
       headers: { authorization: 'Bearer ts_valid_key_12345678' },
       payload: { model: 'claude-sonnet-4-6', messages: [{ role: 'user', content: 'Hello' }], stream: true },
     })
-    expect([200, 429, 502]).toContain(res.statusCode)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toContain('text/event-stream')
+    expect(res.body).toBe('data: streamed\n\n')
   })
 })

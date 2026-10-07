@@ -63,5 +63,6 @@ export interface RateLimitConfig {
 declare module 'fastify' {
   interface FastifyRequest {
     authContext: AuthContext
+    callId: string
   }
 }

@@ -104,14 +104,15 @@ describe('RouterService', () => {
     expect(replaced.overridden).toBe(true)
   })
 
-  it('falls back to haiku when no allowed model matches', async () => {
+  it('rejects an unknown model instead of applying policy fallback', async () => {
     const result = await router.route({
       requestedModel: 'some-unknown-model',
       contextTokens: 100,
       outputTokens: 500,
       orgPolicy: { allowed_models: ['claude-haiku-4-5'] },
     })
-    expect(result.approvedModel).toBe('claude-haiku-4-5')
+    expect(result.approvedModel).toBe('')
+    expect(result.reasoning).toContain('not supported')
   })
 
   it('calculates cost correctly', () => {

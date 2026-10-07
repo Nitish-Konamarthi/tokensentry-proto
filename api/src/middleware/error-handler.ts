@@ -22,13 +22,14 @@ export function registerErrorHandler(app: FastifyInstance): void {
         error: 'VALIDATION_ERROR',
         message: err.message,
         fields: (err as any).validation,
+        call_id: request.callId,
       })
     }
 
     return reply.code(statusCode < 600 ? statusCode : 500).send({
-      error: isProd ? 'INTERNAL_ERROR' : err.name ?? 'INTERNAL_ERROR',
-      message: statusCode === 500 ? 'An unexpected error occurred' : err.message,
-      request_id: request.id as string,
+      error: 'INTERNAL_ERROR',
+      message: 'An unexpected error occurred',
+      call_id: request.callId,
     })
   })
 
@@ -36,6 +37,7 @@ export function registerErrorHandler(app: FastifyInstance): void {
     return reply.code(404).send({
       error: 'NOT_FOUND',
       message: `Route ${request.method} ${request.url} not found`,
+      call_id: request.callId,
     })
   })
 }

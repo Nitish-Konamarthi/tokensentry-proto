@@ -53,6 +53,21 @@ class Router {
     orgPolicy: { allowed_models?: string[]; max_model_tier?: string }
     preservePriority?: 'accuracy' | 'speed' | 'cost'
   }): Promise<RouterDecision> {
+    // Availability is distinct from organization policy. A policy may replace a
+    // known-but-disallowed model, but it must never turn an unknown identifier
+    // into a supported model.
+    if (!isKnownModel(params.requestedModel)) {
+      const complexity = params.contextTokens > 8000 ? 'high' : (params.contextTokens > 2000 ? 'moderate' : 'low')
+      return {
+        approvedModel: '',
+        complexity,
+        confidence: 1.0,
+        reasoning: `Model ${params.requestedModel} is not supported.`,
+        overridden: false,
+        estimatedCostUsd: 0,
+      }
+    }
+
     const evaluation = this.policyEvaluator.evaluate(params)
 
     // Determine permitted models based on policy

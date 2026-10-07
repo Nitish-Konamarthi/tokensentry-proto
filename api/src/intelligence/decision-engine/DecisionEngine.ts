@@ -3,14 +3,14 @@ import { logger } from '../../lib/logger.js'
 import { agentGuardRepo } from '../../repositories/agent-guard.js'
 import { budgetService } from '../../services/budget.js'
 import { routerService } from '../../services/router.js'
-import { providerRouter } from '../../services/provider-router.js'
+import { ProviderUnavailableError, providerRouter } from '../../services/provider-router.js'
 import { analyticsService } from '../../services/analytics.js'
 import { agentGuardService } from '../../services/agent-guard.js'
 import { orgRepo } from '../../repositories/org.js'
 import { getProviderApiKey } from '../../services/provider-credentials.js'
 import { ProviderRequestError } from '../../lib/provider-fetch.js'
 
-import { getModelMetadata } from '../../services/model-metadata.js'
+import { getModelMetadata, isKnownModel } from '../../services/model-metadata.js'
 import {
   computeRequestHash,
   estimateTokenCount,
@@ -130,32 +130,59 @@ export class DecisionEngine {
           reason: budgetCheck.reason,
           current_spend_usd: budgetCheck.current_spend_usd,
           limit_usd: budgetCheck.limit_usd,
+          call_id: ctx.requestId,
         },
       }
     }
 
+    const releaseReservation = () => budgetService.releaseReservation({
+      orgId: ctx.organization.id,
+      estimatedCostMicros,
+    })
+    const releaseReservationOnError = async <T>(operation: () => T | Promise<T>): Promise<T> => {
+      try {
+        return await operation()
+      } catch (err) {
+        await releaseReservation()
+        throw err
+      }
+    }
+
     // Fetch organization's actual model policy
-    const orgData = await orgRepo.findById(ctx.organization.id)
+    const orgData = await releaseReservationOnError(() => orgRepo.findById(ctx.organization.id))
     const orgPolicy = (orgData?.modelPolicy as { allowed_models?: string[]; max_model_tier?: string }) ?? {
       allowed_models: ['claude-haiku-4-5', 'claude-sonnet-4-6'],
       max_model_tier: 'sonnet',
     }
 
-    const routeDecision = await routerService.route({
+    const routeDecision = await releaseReservationOnError(() => routerService.route({
       requestedModel: ctx.request.payload.model,
       contextTokens,
       outputTokens,
       orgPolicy,
       preservePriority: 'cost',
-    })
+    }))
 
     const finalModel = budgetCheck.fallback_model ?? routeDecision.approvedModel
-    const provider = providerRouter.resolveProvider(finalModel)
-    const providerHealth = await providerRouter.checkProviderHealth(provider)
+    if (!finalModel || !isKnownModel(finalModel)) {
+      await releaseReservation()
+      const requestedModelIsKnown = isKnownModel(ctx.request.payload.model)
+      return {
+        statusCode: requestedModelIsKnown ? 403 : 400,
+        body: {
+          error: requestedModelIsKnown ? 'MODEL_NOT_ALLOWED' : 'UNSUPPORTED_MODEL',
+          message: requestedModelIsKnown
+            ? 'No permitted model is available for this request'
+            : 'Requested model is not supported',
+          call_id: ctx.requestId,
+        },
+      }
+    }
+
+    const provider = await releaseReservationOnError(() => providerRouter.resolveProvider(finalModel))
 
     ctx = {
       ...ctx,
-      providerHealth,
       routingDecision: {
         requestedModel: ctx.request.payload.model,
         approvedModel: finalModel,
@@ -166,9 +193,10 @@ export class DecisionEngine {
     }
 
     if (ctx.agent?.agentId && ctx.agent?.sessionId) {
-      const guardResult = await agentGuardService.evaluate({
-        sessionId: ctx.agent.sessionId,
-        agentId: ctx.agent.agentId,
+      const { agentId, sessionId } = ctx.agent
+      const guardResult = await releaseReservationOnError(() => agentGuardService.evaluate({
+        sessionId,
+        agentId,
         orgId: ctx.organization.id,
         inputTokens: contextTokens,
         outputTokens,
@@ -176,9 +204,10 @@ export class DecisionEngine {
         provider,
         budgetUtilization: budgetCheck.utilization,
         timestamp: Date.now(),
-      }, ctx.request.payload.messages)
+      }, ctx.request.payload.messages))
 
       if (guardResult.blocked) {
+        await releaseReservation()
         void agentGuardRepo.recordGuardEvent({
           orgId: ctx.organization.id,
           sessionId: ctx.agent.sessionId,
@@ -208,6 +237,7 @@ export class DecisionEngine {
             session_id: ctx.agent.sessionId,
             score: guardResult.score,
             factors: guardResult.factors,
+            call_id: ctx.requestId,
           },
         }
       }
@@ -225,11 +255,12 @@ export class DecisionEngine {
       }
     }
 
-    const platformKey = await getProviderApiKey(provider, ctx.organization.id)
+    const platformKey = await releaseReservationOnError(() => getProviderApiKey(provider, ctx.organization.id))
     if (!platformKey) {
+      await releaseReservation()
       return {
         statusCode: 500,
-        body: { error: 'CONFIG_ERROR', message: 'Required provider is not configured' },
+        body: { error: 'CONFIG_ERROR', message: 'Required provider is not configured', call_id: ctx.requestId },
       }
     }
 
@@ -486,10 +517,7 @@ export class DecisionEngine {
       }
 
       if (providerErr instanceof ProviderRequestError) {
-        await budgetService.releaseReservation({
-          orgId: ctx.organization.id,
-          estimatedCostMicros,
-        })
+        await releaseReservation()
 
         // Only mark provider unhealthy for infrastructure/availability failures
         const healthDegradingCodes = new Set([
@@ -550,10 +578,38 @@ export class DecisionEngine {
         }
       }
 
-      await budgetService.releaseReservation({
-        orgId: ctx.organization.id,
-        estimatedCostMicros,
-      })
+      if (providerErr instanceof ProviderUnavailableError) {
+        await releaseReservation()
+
+        void analyticsService.recordCall({
+          orgId: ctx.organization.id,
+          teamId: ctx.team.id,
+          userId: ctx.user.id,
+          apiKeyId: ctx.apiKey,
+          model: finalModel,
+          provider,
+          inputTokens: 0,
+          outputTokens: 0,
+          costMicros: 0,
+          durationMs: Date.now() - ctx.timestamps.receivedAt,
+          cacheHit: false,
+          streamed: ctx.request.payload.stream ?? false,
+          statusCode: 502,
+          error: 'PROVIDER_UNAVAILABLE',
+          callId: ctx.requestId,
+        })
+
+        return {
+          statusCode: 502,
+          body: {
+            error: 'PROVIDER_UNAVAILABLE',
+            message: 'Provider temporarily unavailable',
+            call_id: ctx.requestId,
+          },
+        }
+      }
+
+      await releaseReservation()
 
       throw providerErr
     }

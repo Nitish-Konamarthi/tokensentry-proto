@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import helmet from '@fastify/helmet'
 import cors from '@fastify/cors'
 import sensible from '@fastify/sensible'
+import { randomUUID } from 'node:crypto'
 import { logger } from './lib/logger.js'
 import { env } from './config/env.js'
 import { registerErrorHandler } from './middleware/error-handler.js'
@@ -27,6 +28,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     genReqId: () => crypto.randomUUID(),
     bodyLimit: 10 * 1024 * 1024,
   })
+
+  app.decorateRequest('callId', '')
 
   // Plugins
   await app.register(helmet, {
@@ -69,13 +72,30 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(sensible)
 
   // Request logging
-  app.addHook('onRequest', async (request) => {
+  app.addHook('onRequest', async (request, reply) => {
+    request.callId = randomUUID()
+    reply.header('x-call-id', request.callId)
     logger.info({
       method: request.method,
       url: request.url,
       requestId: request.id,
       ip: request.socket.remoteAddress,
     }, 'Request received')
+  })
+
+  // Every JSON error uses the same correlation id as the response header. This
+  // also covers failures that occur before a route handler runs (for example,
+  // schema validation and authentication middleware).
+  app.addHook('onSend', async (request, reply, payload) => {
+    if (reply.statusCode < 400 || typeof payload !== 'string') return payload
+
+    try {
+      const body = JSON.parse(payload) as Record<string, unknown>
+      if (typeof body.error !== 'string' || typeof body.call_id === 'string') return payload
+      return JSON.stringify({ ...body, call_id: request.callId })
+    } catch {
+      return payload
+    }
   })
 
   app.addHook('onResponse', async (request, reply) => {
