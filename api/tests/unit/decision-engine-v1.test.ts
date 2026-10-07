@@ -28,7 +28,9 @@ vi.mock('../../src/services/provider-router.js', () => {
     ProviderUnavailableError,
     providerRouter: {
       resolveProvider: vi.fn(() => 'anthropic'),
+      resolveUpstream: vi.fn(() => ({ upstreamId: 'anthropic', upstreamModelId: 'claude-sonnet-4-6', provider: 'anthropic' })),
       route: vi.fn(),
+      routeWithFallback: vi.fn(),
       markProviderError: vi.fn(),
     },
   }
@@ -169,7 +171,7 @@ describe('DecisionEngine V1 reservation lifecycle', () => {
 
   it('returns a safe provider-unavailable error and releases its reservation', async () => {
     vi.mocked(getProviderApiKey).mockResolvedValue('provider-key')
-    vi.mocked(providerRouter.route).mockRejectedValue(new ProviderUnavailableError('anthropic'))
+    vi.mocked(providerRouter.routeWithFallback).mockRejectedValue(new ProviderUnavailableError('anthropic'))
 
     const result = await new DecisionEngine().decide(requestContext())
 

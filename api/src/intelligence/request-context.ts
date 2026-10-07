@@ -23,6 +23,8 @@ export interface RoutingDecision {
   readonly overridden: boolean
   readonly estimatedCostUsd: number
   readonly provider: string
+  readonly upstream?: string
+  readonly upstreamModel?: string
   readonly providerScores?: ProviderScore[]
 }
 

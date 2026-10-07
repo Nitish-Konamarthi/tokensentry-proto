@@ -1,5 +1,6 @@
 import type { AuthContext } from '../types/index.js'
-import { MODEL_REGISTRY, MODEL_TIERS, getBestPermittedModel, getAllowedModels, getModelMetadata, isKnownModel } from './model-metadata.js'
+import { MODEL_TIERS, getBestPermittedModel, getAllowedModels, getModelMetadata, isKnownModel } from './model-metadata.js'
+import { modelCatalogService } from './model-catalog-service.js'
 
 export interface RouterDecision {
   approvedModel: string
@@ -73,7 +74,7 @@ class Router {
     // Determine permitted models based on policy
     const permittedResult = evaluation.hasRestriction
       ? getAllowedModels(params.orgPolicy.allowed_models)
-      : { permitted: Object.keys(MODEL_REGISTRY), hasRestriction: false, unsupportedConfigured: [] }
+      : { permitted: modelCatalogService.listSupported(), hasRestriction: false, unsupportedConfigured: [] }
     let permitted = permittedResult.permitted.filter(isKnownModel)
 
     // Enforce max_model_tier if configured

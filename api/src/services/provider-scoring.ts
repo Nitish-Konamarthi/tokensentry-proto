@@ -1,6 +1,6 @@
 import { providerRouter } from './provider-router.js'
 import type { ProviderType } from '../types/index.js'
-import { getCapabilityScore, MODEL_REGISTRY, MODEL_COSTS } from './model-metadata.js'
+import { getCapabilityScore, MODEL_COSTS } from './model-metadata.js'
 import type { ProviderHealthState } from './provider-router.js'
 
 export interface ProviderScoreComponents {
@@ -31,6 +31,7 @@ const DEFAULT_LATENCIES_MS: Record<ProviderType, number> = {
   openai: 200,
   gemini: 250,
   groq: 180,
+  openrouter: 250,
 }
 
 const WEIGHTS = {

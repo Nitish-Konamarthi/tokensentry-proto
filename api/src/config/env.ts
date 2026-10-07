@@ -26,6 +26,16 @@ const envSchema = z.object({
   GEMINI_API_KEY: z.string().optional(),
   GROQ_API_KEY: z.string().optional(),
 
+  // OpenRouter upstream
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_BASE_URL: z.string().url().optional(),
+  OPENROUTER_HTTP_REFERER: z.string().optional(),
+  OPENROUTER_X_TITLE: z.string().optional(),
+
+  // Catalog sources (optional)
+  MODELS_DEV_API_URL: z.string().url().optional(),
+  OPENCODE_API_URL: z.string().url().optional(),
+
   // Feature flags (V1 keeps core functions only)
   MAX_PROMPT_CHARS: z.coerce.number().int().positive().default(131072),
 

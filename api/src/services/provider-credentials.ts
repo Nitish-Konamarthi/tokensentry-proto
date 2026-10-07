@@ -29,6 +29,8 @@ export async function getProviderApiKey(provider: ProviderType, orgId?: string):
       return env.GEMINI_API_KEY || undefined
     case 'groq':
       return env.GROQ_API_KEY || undefined
+    case 'openrouter':
+      return env.OPENROUTER_API_KEY || undefined
     default:
       return undefined
   }

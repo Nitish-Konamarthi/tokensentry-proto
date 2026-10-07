@@ -58,6 +58,9 @@ export class AnalyticsService {
     requestedModel: string; recommendedModel?: string; approvedModel: string
     complexity?: string; confidence?: number; reasoning?: string
     estimatedCostUsd?: number; overridden?: boolean
+    upstream?: string; upstreamModel?: string; routePriority?: number
+    attemptNumber?: number; fallbackUpstream?: string; success?: boolean
+    normalizedErrorCategory?: string
   }): Promise<void> {
     try {
       await this.dispatcher.recordRouting({
@@ -70,6 +73,13 @@ export class AnalyticsService {
         complexity: params.complexity,
         confidence: params.confidence,
         reasoning: params.reasoning,
+        upstream: params.upstream,
+        upstreamModel: params.upstreamModel,
+        routePriority: params.routePriority,
+        attemptNumber: params.attemptNumber,
+        fallbackUpstream: params.fallbackUpstream,
+        success: params.success,
+        normalizedErrorCategory: params.normalizedErrorCategory,
       })
     } catch (err) {
       logger.error({ err }, 'Failed to dispatch routing analytics')

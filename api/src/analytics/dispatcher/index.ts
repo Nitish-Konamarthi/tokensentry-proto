@@ -33,6 +33,13 @@ export interface AnalyticsDispatchRouting {
   complexity?: string
   confidence?: number
   reasoning?: string
+  upstream?: string
+  upstreamModel?: string
+  routePriority?: number
+  attemptNumber?: number
+  fallbackUpstream?: string
+  success?: boolean
+  normalizedErrorCategory?: string
 }
 
 export interface AnalyticsDispatcher {

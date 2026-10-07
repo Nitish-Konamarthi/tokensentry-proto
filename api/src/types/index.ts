@@ -12,7 +12,8 @@ export interface ProviderCost {
   output: number
 }
 
-export type ProviderType = 'anthropic' | 'openai' | 'gemini' | 'groq'
+export type ProviderType = 'anthropic' | 'openai' | 'gemini' | 'groq' | 'openrouter'
+export type UpstreamType = 'openrouter'
 
 export interface ProxyRequest {
   model: string

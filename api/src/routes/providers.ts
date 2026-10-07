@@ -19,6 +19,7 @@ export async function providerRoutes(fastify: FastifyInstance): Promise<void> {
         { provider: 'openai', name: 'OpenAI', configured: configuredProviders.includes('openai') },
         { provider: 'gemini', name: 'Gemini', configured: configuredProviders.includes('gemini') },
         { provider: 'groq', name: 'Groq', configured: configuredProviders.includes('groq') },
+        { provider: 'openrouter', name: 'OpenRouter', configured: configuredProviders.includes('openrouter') },
       ],
     }
   })
@@ -26,7 +27,7 @@ export async function providerRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.put('/v1/providers/keys', { preHandler: [requireApiKey, requireAdmin] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const ctx = request.authContext
     const body = request.body as Record<string, string | undefined>
-    const validProviders = ['anthropic', 'openai', 'gemini', 'groq']
+    const validProviders = ['anthropic', 'openai', 'gemini', 'groq', 'openrouter']
     const toStore: Record<string, string> = {}
 
     for (const provider of validProviders) {

@@ -10,6 +10,7 @@ import { orgRepo } from '../../repositories/org.js'
 import { getProviderApiKey } from '../../services/provider-credentials.js'
 import { ProviderRequestError } from '../../lib/provider-fetch.js'
 
+import type { ProviderType } from '../../types/index.js'
 import { getModelMetadata, isKnownModel } from '../../services/model-metadata.js'
 import {
   computeRequestHash,
@@ -179,7 +180,8 @@ export class DecisionEngine {
       }
     }
 
-    const provider = await releaseReservationOnError(() => providerRouter.resolveProvider(finalModel))
+    const upstreamInfo = await releaseReservationOnError(() => providerRouter.resolveUpstream(finalModel))
+    const provider: ProviderType = (upstreamInfo.provider ?? upstreamInfo.upstreamId) as ProviderType
 
     ctx = {
       ...ctx,
@@ -189,6 +191,8 @@ export class DecisionEngine {
         overridden: ctx.request.payload.model !== finalModel,
         estimatedCostUsd,
         provider,
+        upstream: upstreamInfo.upstreamId,
+        upstreamModel: upstreamInfo.upstreamModelId,
       },
     }
 
@@ -265,7 +269,7 @@ export class DecisionEngine {
     }
 
     try {
-      const providerResponse = await providerRouter.route({
+      const providerResponse = await providerRouter.routeWithFallback({
         provider,
         model: finalModel,
         apiKey: platformKey,
@@ -500,6 +504,11 @@ export class DecisionEngine {
         approvedModel: finalModel,
         overridden: ctx.request.payload.model !== finalModel,
         estimatedCostUsd,
+        upstream: ctx.routingDecision?.upstream,
+        upstreamModel: ctx.routingDecision?.upstreamModel,
+        routePriority: 1,
+        attemptNumber: 1,
+        success: true,
       })
 
       return {
@@ -636,6 +645,13 @@ export class DecisionEngine {
           inputTokens: data.usageMetadata?.promptTokenCount ?? 0,
           outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
         }
+      case 'openrouter':
+        // OpenRouter returns OpenAI-compatible responses
+        return {
+          content: data.choices?.[0]?.message?.content ?? '',
+          inputTokens: data.usage?.prompt_tokens ?? 0,
+          outputTokens: data.usage?.completion_tokens ?? 0,
+        }
       default:
         return { content: '', inputTokens: 0, outputTokens: 0 }
     }
@@ -685,6 +701,21 @@ export class DecisionEngine {
           }
         }
         return null
+      case 'openrouter':
+        // OpenRouter streaming: same as openai
+        if (data.usage) {
+          return {
+            inputTokens: data.usage.prompt_tokens ?? 0,
+            outputTokens: data.usage.completion_tokens ?? 0,
+          }
+        }
+        if (data.choices?.[0]?.finish_reason && data.usage) {
+          return {
+            inputTokens: data.usage.prompt_tokens ?? 0,
+            outputTokens: data.usage.completion_tokens ?? 0,
+          }
+        }
+        return null
       default:
         return null
     }
@@ -692,8 +723,13 @@ export class DecisionEngine {
 
   private calculateProviderCost(provider: string, model: string, inputTokens: number, outputTokens: number): number {
     const meta = getModelMetadata(model)
-    if (!meta || meta.provider !== provider || !meta.cost) return 0
-    return (inputTokens / 1_000_000) * meta.cost.input + (outputTokens / 1_000_000) * meta.cost.output
+    if (!meta || !meta.cost) return 0
+    // For V1, openrouter upstream uses the same cost structure as the underlying model provider
+    // We allow cost lookup for any registered model regardless of provider mapping.
+    if (provider === 'openrouter' || meta.provider === provider) {
+      return (inputTokens / 1_000_000) * meta.cost.input + (outputTokens / 1_000_000) * meta.cost.output
+    }
+    return 0
   }
 }
 
