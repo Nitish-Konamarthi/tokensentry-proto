@@ -7,6 +7,7 @@ export interface NormalizedRequest {
   maxTokens?: number
   temperature?: number
   stream?: boolean
+  apiKey?: string
 }
 
 export interface NormalizedResponse {

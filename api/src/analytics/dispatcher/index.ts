@@ -1,4 +1,5 @@
 import { PostgresAnalyticsDispatcher } from './postgres-dispatcher.js'
+import type { RouteAttempt } from '../../services/provider-router.js'
 
 export interface AnalyticsRequestMetadata {
   orgId: string
@@ -17,6 +18,8 @@ export interface AnalyticsDispatchCall {
   upstreamModel?: string
   routePriority?: number
   attemptNumber?: number
+  attempts?: RouteAttempt[]
+  fallbackUsed?: boolean
   fallbackUpstream?: string
   success?: boolean
   normalizedErrorCategory?: string
@@ -43,6 +46,8 @@ export interface AnalyticsDispatchRouting {
   upstreamModel?: string
   routePriority?: number
   attemptNumber?: number
+  attempts?: RouteAttempt[]
+  fallbackUsed?: boolean
   fallbackUpstream?: string
   success?: boolean
   normalizedErrorCategory?: string

@@ -1,19 +1,26 @@
 import { db } from '../db/index.js'
 import { usageLogs } from '../db/schema.js'
 import { eq, and, gte, lt, sql, desc } from 'drizzle-orm'
+import type { RouteAttempt } from '../services/provider-router.js'
 
 export class UsageLogRepository {
   async insert(data: {
     orgId: string; teamId: string; userId?: string; apiKeyId?: string
     callId: string; model: string; provider: string
     modelOwner?: string; canonicalModel?: string; upstream?: string; upstreamModel?: string
-    routePriority?: number; attemptNumber?: number; fallbackUpstream?: string
+    routePriority?: number; attemptNumber?: number
+    attempts?: RouteAttempt[]
+    fallbackUsed?: boolean
+    fallbackUpstream?: string
     success?: boolean; normalizedErrorCategory?: string
     inputTokens: number; outputTokens: number; costMicros: number
     durationMs: number; cacheHit: boolean; streamed: boolean
     statusCode: number; error?: string
   }) {
-    const rows = await db.insert(usageLogs).values(data).returning()
+    const rows = await db.insert(usageLogs).values({
+      ...data,
+      attempts: data.attempts ? JSON.stringify(data.attempts) : undefined,
+    }).returning()
     return rows[0]!
   }
 

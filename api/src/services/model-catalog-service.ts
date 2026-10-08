@@ -1,11 +1,20 @@
 import { ModelCatalog } from './model-catalog.js'
-import type { CatalogSource, ModelDescriptor } from './model-catalog.js'
+import type { CatalogSource, CatalogDiscoveryResult, ModelDescriptor } from './model-catalog.js'
+
+export interface SourceSnapshot {
+  status: 'healthy' | 'unhealthy'
+  lastSuccessfulRefresh: number
+  models: ModelDescriptor[]
+  error?: string
+}
 
 export interface CatalogProjection {
   descriptors: Map<string, ModelDescriptor>
   lastUpdated: number
   sourceStatus: Map<string, { healthy: boolean; lastChecked: number; error?: string }>
 }
+
+export type CatalogHealthStatus = 'healthy' | 'degraded' | 'unavailable'
 
 export interface ModelCatalogServiceConfig {
   sources: CatalogSource[]
@@ -20,6 +29,7 @@ export class ModelCatalogService {
     lastUpdated: 0,
     sourceStatus: new Map(),
   }
+  private sourceSnapshots: Map<string, SourceSnapshot> = new Map()
 
   constructor(config: ModelCatalogServiceConfig) {
     this.config = {
@@ -27,19 +37,11 @@ export class ModelCatalogService {
       sourcePrecedence: [],
       ...config,
     }
-
-    // Initialize with empty projection - will be populated on first refresh
-    this.projection = {
-      descriptors: new Map(),
-      lastUpdated: 0,
-      sourceStatus: new Map(),
-    }
   }
 
   private mergeDescriptors(descriptors: ModelDescriptor[]): ModelDescriptor[] {
     const precedence = this.config.sourcePrecedence ?? this.config.sources.map(s => s.id)
-    
-    // Group by model ID
+
     const byId = new Map<string, ModelDescriptor[]>()
     for (const desc of descriptors) {
       const existing = byId.get(desc.id) ?? []
@@ -47,14 +49,12 @@ export class ModelCatalogService {
       byId.set(desc.id, existing)
     }
 
-    // Resolve conflicts using precedence
     const merged: ModelDescriptor[] = []
     for (const [id, variants] of byId) {
       if (variants.length === 1) {
         const desc = variants[0]
         if (desc) merged.push(desc)
       } else {
-        // Sort by source precedence
         const sorted = variants.sort((a, b) => {
           const aSourceId = (a.metadata?.sourceId as string) ?? ''
           const bSourceId = (b.metadata?.sourceId as string) ?? ''
@@ -71,32 +71,88 @@ export class ModelCatalogService {
   }
 
   async refresh(): Promise<void> {
-    const allDescriptors: ModelDescriptor[] = []
     const newSourceStatus = new Map<string, { healthy: boolean; lastChecked: number; error?: string }>()
 
     for (const source of this.config.sources) {
       try {
-        const discovered = await source.discover()
-        // Tag each descriptor with source ID for provenance
-        const tagged = discovered.map(d => ({
-          ...d,
-          metadata: { ...d.metadata, sourceId: source.id },
-        }))
-        allDescriptors.push(...tagged)
-        newSourceStatus.set(source.id, { healthy: true, lastChecked: Date.now() })
+        const result = await source.discover()
+
+        if (result.ok) {
+          const tagged = result.models.map(d => ({
+            ...d,
+            metadata: { ...d.metadata, sourceId: source.id },
+          }))
+          this.sourceSnapshots.set(source.id, {
+            status: 'healthy',
+            lastSuccessfulRefresh: Date.now(),
+            models: tagged,
+          })
+          newSourceStatus.set(source.id, { healthy: true, lastChecked: Date.now() })
+        } else {
+          const prev = this.sourceSnapshots.get(source.id)
+          if (prev) {
+            // Source failed - retain models (last-known-good)
+            // Only mark snapshot unhealthy if it has no models (was empty success)
+            const hasModels = prev.models.length > 0
+            this.sourceSnapshots.set(source.id, {
+              ...prev,
+              status: hasModels ? 'healthy' : 'unhealthy',
+              error: result.error,
+            })
+            newSourceStatus.set(source.id, {
+              healthy: false,
+              lastChecked: Date.now(),
+              error: result.error,
+            })
+          } else {
+            this.sourceSnapshots.set(source.id, {
+              status: 'unhealthy',
+              lastSuccessfulRefresh: 0,
+              models: [],
+              error: result.error,
+            })
+            newSourceStatus.set(source.id, {
+              healthy: false,
+              lastChecked: Date.now(),
+              error: result.error,
+            })
+          }
+        }
       } catch (error) {
-        const prevStatus = this.projection.sourceStatus.get(source.id)
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        const prev = this.sourceSnapshots.get(source.id)
+        if (prev) {
+          // Source failed - retain models (last-known-good)
+          // Only mark snapshot unhealthy if it has no models (was empty success)
+          const hasModels = prev.models.length > 0
+          this.sourceSnapshots.set(source.id, {
+            ...prev,
+            status: hasModels ? 'healthy' : 'unhealthy',
+            error: errorMessage,
+          })
+        } else {
+          this.sourceSnapshots.set(source.id, {
+            status: 'unhealthy',
+            lastSuccessfulRefresh: 0,
+            models: [],
+            error: errorMessage,
+          })
+        }
         newSourceStatus.set(source.id, {
           healthy: false,
           lastChecked: Date.now(),
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: errorMessage,
         })
       }
     }
 
-    // Merge descriptors with deterministic precedence
+    const allDescriptors: ModelDescriptor[] = []
+    for (const snapshot of this.sourceSnapshots.values()) {
+      allDescriptors.push(...snapshot.models)
+    }
+
     const merged = this.mergeDescriptors(allDescriptors)
-    
+
     const descriptors = new Map<string, ModelDescriptor>()
     for (const desc of merged) {
       descriptors.set(desc.id, desc)
@@ -129,7 +185,20 @@ export class ModelCatalogService {
     return this.projection.sourceStatus.get(sourceId)
   }
 
-  // Synchronization interface
+  getSourceSnapshot(sourceId: string): SourceSnapshot | undefined {
+    return this.sourceSnapshots.get(sourceId)
+  }
+
+  getCatalogHealth(): CatalogHealthStatus {
+    const snapshots = Array.from(this.sourceSnapshots.values())
+    if (snapshots.length === 0) return 'unavailable'
+
+    const healthyCount = snapshots.filter(s => s.status === 'healthy').length
+    if (healthyCount === snapshots.length) return 'healthy'
+    if (healthyCount > 0) return 'degraded'
+    return 'unavailable'
+  }
+
   private syncInterval?: ReturnType<typeof setInterval>
 
   startPeriodicRefresh(intervalMs = 300000): void {
@@ -138,7 +207,6 @@ export class ModelCatalogService {
       try {
         await this.refresh()
       } catch {
-        // Failure tolerance: external catalog unavailability must not make TokenSentry unavailable.
       }
     }, intervalMs)
   }
@@ -155,7 +223,6 @@ export class ModelCatalogService {
   }
 }
 
-// Composite source that merges multiple sources
 class CompositeCatalogSource implements CatalogSource {
   id = 'composite'
 
@@ -163,22 +230,34 @@ class CompositeCatalogSource implements CatalogSource {
     this.id = sources.map(s => s.id).join('+')
   }
 
-  async discover(): Promise<ModelDescriptor[]> {
+  async discover(): Promise<CatalogDiscoveryResult> {
     const all: ModelDescriptor[] = []
+    let hasFailure = false
+    let lastError = ''
+
     for (const source of this.sources) {
       try {
-        const discovered = await source.discover()
-        // Tag with source ID for provenance
-        all.push(...discovered.map(d => ({ ...d, metadata: { ...d.metadata, sourceId: source.id } })))
-      } catch {
-        // Source failure - skip, other sources may succeed
+        const result = await source.discover()
+        if (result.ok) {
+          all.push(...result.models.map(d => ({ ...d, metadata: { ...d.metadata, sourceId: source.id } })))
+        } else {
+          hasFailure = true
+          lastError = result.error
+        }
+      } catch (err) {
+        hasFailure = true
+        lastError = err instanceof Error ? err.message : 'Unknown error'
       }
     }
-    return this.mergeByPrecedence(all)
+
+    if (hasFailure && all.length === 0) {
+      return { ok: false, error: lastError }
+    }
+
+    return { ok: true, models: this.mergeByPrecedence(all) }
   }
 
   private mergeByPrecedence(descriptors: ModelDescriptor[]): ModelDescriptor[] {
-    // Simple merge - first source wins for each model ID
     const seen = new Set<string>()
     const merged: ModelDescriptor[] = []
     for (const desc of descriptors) {
@@ -197,7 +276,6 @@ export interface ModelCatalogServiceConfig {
   sourcePrecedence?: string[]
 }
 
-// Singleton instance - initialized lazily by catalog-bootstrap.ts
 let _catalogService: ModelCatalogService | null = null
 
 export function getCatalogService(): ModelCatalogService {
@@ -211,10 +289,9 @@ export function setCatalogService(service: ModelCatalogService): void {
   _catalogService = service
 }
 
-// Export a getter that always returns the current singleton instance
 export const modelCatalogService = new Proxy({} as ModelCatalogService, {
   get(target, prop) {
     const service = getCatalogService()
     return (service as any)[prop]
-  }
+  },
 })

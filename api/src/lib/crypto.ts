@@ -28,12 +28,16 @@ export function secureRandomHex(bytes: number): string {
   return randomBytes(bytes).toString('hex')
 }
 
-const ENCRYPTION_KEY = (env.ENCRYPTION_KEY || env.API_KEY_PEPPER).slice(0, 32).padEnd(32, 'x')
 const ALGORITHM = 'aes-256-gcm'
+
+function getEncryptionKey(): Buffer {
+  const key = (env.ENCRYPTION_KEY || env.API_KEY_PEPPER).slice(0, 32).padEnd(32, 'x')
+  return Buffer.from(key)
+}
 
 export function encrypt(text: string): string {
   const iv = randomBytes(16)
-  const cipher = createCipheriv(ALGORITHM, Buffer.from(ENCRYPTION_KEY), iv)
+  const cipher = createCipheriv(ALGORITHM, getEncryptionKey(), iv)
   let encrypted = cipher.update(text, 'utf8', 'hex')
   encrypted += cipher.final('hex')
   const authTag = cipher.getAuthTag().toString('hex')
@@ -45,7 +49,7 @@ export function decrypt(encoded: string): string {
   if (!ivHex || !authTagHex || !encrypted) throw new Error('Invalid encrypted format')
   const iv = Buffer.from(ivHex, 'hex')
   const authTag = Buffer.from(authTagHex, 'hex')
-  const decipher = createDecipheriv(ALGORITHM, Buffer.from(ENCRYPTION_KEY), iv)
+  const decipher = createDecipheriv(ALGORITHM, getEncryptionKey(), iv)
   decipher.setAuthTag(authTag)
   let decrypted = decipher.update(encrypted, 'hex', 'utf8')
   decrypted += decipher.final('utf8')

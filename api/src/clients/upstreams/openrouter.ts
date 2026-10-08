@@ -17,7 +17,7 @@ export class OpenRouterUpstreamAdapter implements UpstreamAdapter {
   }
 
   chat(request: NormalizedRequest): Promise<Response> {
-    const apiKey = this.getApiKey()
+    const apiKey = request.apiKey || this.getApiKey()
     if (!apiKey) {
       throw new ProviderRequestError('PROVIDER_AUTH', 'OpenRouter API key not configured', 'openrouter', 401, false)
     }

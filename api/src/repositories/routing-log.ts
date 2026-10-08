@@ -1,12 +1,16 @@
 import { db } from '../db/index.js'
 import { routingLogs } from '../db/schema.js'
+import type { RouteAttempt } from '../services/provider-router.js'
 
 export class RoutingLogRepository {
   async insert(data: {
     orgId: string; callId: string
     requestedModel: string; canonicalModel?: string; approvedModel: string
     modelOwner?: string; upstream?: string; upstreamModel?: string
-    routePriority?: number; attemptNumber?: number; fallbackUpstream?: string
+    routePriority?: number; attemptNumber?: number
+    attempts?: RouteAttempt[]
+    fallbackUsed?: boolean
+    fallbackUpstream?: string
     success?: boolean; normalizedErrorCategory?: string
     complexity?: string; confidence?: number; reasoning?: string
     estimatedCostUsd?: number; overridden?: boolean
@@ -22,6 +26,8 @@ export class RoutingLogRepository {
       upstreamModel: data.upstreamModel,
       routePriority: data.routePriority,
       attemptNumber: data.attemptNumber,
+      attempts: data.attempts ? JSON.stringify(data.attempts) : null,
+      fallbackUsed: data.fallbackUsed,
       fallbackUpstream: data.fallbackUpstream,
       success: data.success,
       normalizedErrorCategory: data.normalizedErrorCategory,

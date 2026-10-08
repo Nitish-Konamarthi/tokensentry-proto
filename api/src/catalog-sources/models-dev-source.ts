@@ -1,5 +1,5 @@
 import { env } from '../config/env.js'
-import type { CatalogSource, ModelDescriptor } from '../services/model-catalog.js'
+import type { CatalogSource, CatalogDiscoveryResult, ModelDescriptor } from '../services/model-catalog.js'
 
 export class ModelsDevCatalogSource implements CatalogSource {
   id = 'models-dev'
@@ -8,18 +8,16 @@ export class ModelsDevCatalogSource implements CatalogSource {
     return env.MODELS_DEV_API_URL || 'https://models.dev/api/v1/models'
   }
 
-  async discover(): Promise<ModelDescriptor[]> {
+  async discover(): Promise<CatalogDiscoveryResult> {
     try {
       const response = await fetch(this.getUrl(), {
         method: 'GET',
         headers: { 'Accept': 'application/json' },
       })
       if (!response.ok) {
-        return []
+        return { ok: false, error: `Models.dev returned HTTP ${response.status}` }
       }
       const data = await response.json() as any
-      // Normalize Models.dev response into ModelDescriptor
-      // Hide Models.dev-specific structures from the rest of TokenSentry
       const descriptors: ModelDescriptor[] = []
       const models = Array.isArray(data) ? data : (data.models ?? [])
       for (const item of models) {
@@ -36,16 +34,12 @@ export class ModelsDevCatalogSource implements CatalogSource {
           metadata: item,
         })
       }
-      return descriptors
-    } catch {
-      // If the external catalog is unavailable, return an empty projection
-      // rather than making TokenSentry unavailable.
-      return []
+      return { ok: true, models: descriptors }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' }
     }
   }
 
   async refresh(): Promise<void> {
-    // Manual refresh hook; discovery is called on request-time lookup
-    // via the catalog service, not on every inference request.
   }
 }

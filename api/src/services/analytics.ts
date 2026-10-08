@@ -2,6 +2,7 @@ import { budgetService } from './budget.js'
 import { logger } from '../lib/logger.js'
 import type { AnalyticsDispatcher, AnalyticsDispatchCall, AnalyticsDispatchRouting, AnalyticsRequestMetadata } from '../analytics/dispatcher/index.js'
 import { analyticsDispatcher } from '../analytics/dispatcher/index.js'
+import type { RouteAttempt } from './provider-router.js'
 
 export interface CallRecord {
   orgId: string; teamId: string; userId?: string; apiKeyId?: string
@@ -9,6 +10,8 @@ export interface CallRecord {
   modelOwner?: string; canonicalModel?: string
   upstream?: string; upstreamModel?: string
   routePriority?: number; attemptNumber?: number
+  attempts?: RouteAttempt[]
+  fallbackUsed?: boolean
   fallbackUpstream?: string; success?: boolean
   normalizedErrorCategory?: string
   durationMs: number; inputTokens: number; outputTokens: number; costMicros: number
@@ -44,6 +47,8 @@ export class AnalyticsService {
         upstreamModel: params.upstreamModel,
         routePriority: params.routePriority,
         attemptNumber: params.attemptNumber,
+        attempts: params.attempts,
+        fallbackUsed: params.fallbackUsed,
         fallbackUpstream: params.fallbackUpstream,
         success: params.success,
         normalizedErrorCategory: params.normalizedErrorCategory,
@@ -71,7 +76,10 @@ export class AnalyticsService {
     orgId: string; callId: string
     requestedModel: string; canonicalModel?: string; approvedModel: string
     modelOwner?: string; upstream?: string; upstreamModel?: string
-    routePriority?: number; attemptNumber?: number; fallbackUpstream?: string
+    routePriority?: number; attemptNumber?: number
+    attempts?: RouteAttempt[]
+    fallbackUsed?: boolean
+    fallbackUpstream?: string
     success?: boolean; normalizedErrorCategory?: string
     complexity?: string; confidence?: number; reasoning?: string
     estimatedCostUsd?: number; overridden?: boolean
@@ -88,6 +96,8 @@ export class AnalyticsService {
         upstreamModel: params.upstreamModel,
         routePriority: params.routePriority,
         attemptNumber: params.attemptNumber,
+        attempts: params.attempts,
+        fallbackUsed: params.fallbackUsed,
         fallbackUpstream: params.fallbackUpstream,
         success: params.success,
         normalizedErrorCategory: params.normalizedErrorCategory,

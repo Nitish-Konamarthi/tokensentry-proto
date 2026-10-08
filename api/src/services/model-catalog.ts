@@ -14,9 +14,13 @@ export interface ModelDescriptor {
   metadata?: Record<string, unknown>
 }
 
+export type CatalogDiscoveryResult =
+  | { ok: true; models: ModelDescriptor[] }
+  | { ok: false; error: string }
+
 export interface CatalogSource {
   id: string
-  discover(): Promise<ModelDescriptor[]>
+  discover(): Promise<CatalogDiscoveryResult>
   refresh?(): Promise<void>
 }
 
@@ -29,8 +33,10 @@ export class ModelCatalog {
 
   async refresh(): Promise<void> {
     try {
-      const discovered = await this.source.discover()
-      this.snapshot = discovered
+      const result = await this.source.discover()
+      if (result.ok) {
+        this.snapshot = result.models
+      }
     } catch {
       // If discovery fails, retain existing snapshot rather than inventing data
     }

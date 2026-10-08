@@ -3,11 +3,10 @@ import { logger } from '../../lib/logger.js'
 import { agentGuardRepo } from '../../repositories/agent-guard.js'
 import { budgetService } from '../../services/budget.js'
 import { routerService } from '../../services/router.js'
-import { UpstreamUnavailableError, providerRouter } from '../../services/provider-router.js'
+import { UpstreamUnavailableError, providerRouter, type RouteExecutionResult, type RouteAttempt } from '../../services/provider-router.js'
 import { analyticsService } from '../../services/analytics.js'
 import { agentGuardService } from '../../services/agent-guard.js'
 import { orgRepo } from '../../repositories/org.js'
-import { getProviderApiKey } from '../../services/provider-credentials.js'
 import { ProviderRequestError } from '../../lib/provider-fetch.js'
 
 import type { UpstreamId } from '../../types/index.js'
@@ -265,36 +264,45 @@ export class DecisionEngine {
       }
     }
 
-    const platformKey = await releaseReservationOnError(() => getProviderApiKey(upstreamInfo.upstreamId, ctx.organization.id))
-    if (!platformKey) {
-      await releaseReservation()
-      return {
-        statusCode: 500,
-        body: { error: 'CONFIG_ERROR', message: 'Required upstream is not configured', call_id: ctx.requestId },
-      }
-    }
-
+    let routeResult: RouteExecutionResult
     try {
-      const providerResponse = await providerRouter.routeWithFallback({
+      routeResult = await releaseReservationOnError(() => providerRouter.routeWithFallback({
         model: finalModel,
-        apiKey: platformKey,
+        orgId: ctx.organization.id,
         messages: ctx.request.normalized?.messages ?? ctx.request.payload.messages,
         system: ctx.request.payload.system,
         maxTokens: outputTokens,
         temperature: ctx.request.payload.temperature,
         stream: ctx.request.payload.stream,
-      })
-
-      const durationMs = Date.now() - ctx.timestamps.receivedAt
-      ctx = {
-        ...ctx,
-        timestamps: {
-          ...ctx.timestamps,
-          providerResponseAt: Date.now(),
-        },
+      }))
+    } catch (err: any) {
+      if (err.message?.includes('No credential configured')) {
+        await releaseReservation()
+        return {
+          statusCode: 500,
+          body: { error: 'CONFIG_ERROR', message: 'Required upstream is not configured', call_id: ctx.requestId },
+        }
       }
+throw err
+    }
 
-      if (ctx.request.payload.stream) {
+    try {
+      const providerResponse = routeResult.response
+    const finalRoute = routeResult.finalRoute
+    const attempts = routeResult.attempts
+    const fallbackUsed = routeResult.fallbackUsed
+    const fallbackUpstream = routeResult.fallbackUpstream
+
+    const durationMs = Date.now() - ctx.timestamps.receivedAt
+    ctx = {
+      ...ctx,
+      timestamps: {
+        ...ctx.timestamps,
+        providerResponseAt: Date.now(),
+      },
+    }
+
+    if (ctx.request.payload.stream) {
         return {
           statusCode: 200,
           streamHandler: async (reply: FastifyReply) => {
@@ -333,7 +341,7 @@ export class DecisionEngine {
                   if (trimmed.startsWith('data: ') && trimmed !== 'data: [DONE]') {
                     try {
                       const data = JSON.parse(trimmed.slice(6))
-                      const usage = this.parseStreamingUsage(upstreamInfo.upstreamId, data)
+                      const usage = this.parseStreamingUsage(finalRoute.upstreamId, data)
                       if (usage) {
                         streamUsage = usage
                       }
@@ -348,7 +356,7 @@ export class DecisionEngine {
               if (buffer.trim().startsWith('data: ') && buffer.trim() !== 'data: [DONE]') {
                 try {
                   const data = JSON.parse(buffer.trim().slice(6))
-                  const usage = this.parseStreamingUsage(upstreamInfo.upstreamId, data)
+                  const usage = this.parseStreamingUsage(finalRoute.upstreamId, data)
                   if (usage) {
                     streamUsage = usage
                   }
@@ -373,7 +381,7 @@ export class DecisionEngine {
             if (streamUsage) {
               finalInputTokens = streamUsage.inputTokens
               finalOutputTokens = streamUsage.outputTokens
-              finalCostMicros = Math.ceil(this.calculateProviderCost(upstreamInfo.upstreamId, finalModel, finalInputTokens, finalOutputTokens) * 1_000_000)
+              finalCostMicros = Math.ceil(this.calculateProviderCost(finalRoute.upstreamId, finalModel, finalInputTokens, finalOutputTokens) * 1_000_000)
 
               await budgetService.recordActualCost({
                 orgId: ctx.organization.id,
@@ -391,21 +399,25 @@ export class DecisionEngine {
             const canonicalRequested = canonicalizeModelId(ctx.request.payload.model)
             const modelOwner = getModelOwner(finalModel) ?? 'unknown'
             
+            const lastAttempt = attempts[attempts.length - 1]
             void analyticsService.recordCall({
               orgId: ctx.organization.id,
               teamId: ctx.team.id,
               userId: ctx.user.id,
               apiKeyId: ctx.apiKey,
               model: finalModel,
-              provider: upstreamInfo.upstreamId,
+              provider: finalRoute.upstreamId,
               modelOwner,
               canonicalModel: canonicalRequested,
-              upstream: upstreamInfo.upstreamId,
-              upstreamModel: upstreamInfo.upstreamModelId,
-              routePriority: 1,
-              attemptNumber: 1,
+              upstream: finalRoute.upstreamId,
+              upstreamModel: finalRoute.upstreamModelId,
+              routePriority: finalRoute.priority,
+              attemptNumber: lastAttempt?.attemptNumber ?? attempts.length,
+              attempts,
+              fallbackUsed,
+              fallbackUpstream,
               success: !streamError,
-              normalizedErrorCategory: streamError ? 'STREAM_ERROR' : undefined,
+              normalizedErrorCategory: streamError ? 'SERVER_ERROR' : undefined,
               inputTokens: finalInputTokens,
               outputTokens: finalOutputTokens,
               costMicros: finalCostMicros,
@@ -426,7 +438,7 @@ export class DecisionEngine {
                 inputTokens: finalInputTokens,
                 outputTokens: finalOutputTokens,
                 toolCount: 0,
-                provider: upstreamInfo.upstreamId,
+                provider: finalRoute.upstreamId,
                 budgetUtilization: budgetCheck.utilization,
                 timestamp: Date.now(),
               }, ctx.request.normalized?.messages ?? ctx.request.payload.messages)
@@ -436,8 +448,8 @@ export class DecisionEngine {
       }
 
       const responseData = await providerResponse.json() as any
-      const { content, inputTokens, outputTokens: outTokens } = this.parseProviderResponse(upstreamInfo.upstreamId, responseData)
-      const actualCostMicros = Math.ceil(this.calculateProviderCost(upstreamInfo.upstreamId, finalModel, inputTokens, outTokens) * 1_000_000)
+      const { content, inputTokens, outputTokens: outTokens } = this.parseProviderResponse(finalRoute.upstreamId, responseData)
+      const actualCostMicros = Math.ceil(this.calculateProviderCost(finalRoute.upstreamId, finalModel, inputTokens, outTokens) * 1_000_000)
 
       await budgetService.recordActualCost({
         orgId: ctx.organization.id,
@@ -452,7 +464,7 @@ export class DecisionEngine {
           inputTokens,
           outputTokens: outTokens,
           toolCount: 0,
-          provider: upstreamInfo.upstreamId,
+          provider: finalRoute.upstreamId,
           budgetUtilization: budgetCheck.utilization,
           timestamp: Date.now(),
         }, ctx.request.normalized?.messages ?? ctx.request.payload.messages)
@@ -499,19 +511,23 @@ export class DecisionEngine {
         },
       }
       
+      const lastAttempt = attempts[attempts.length - 1]
       void analyticsService.recordCall({
         orgId: ctx.organization.id,
         teamId: ctx.team.id,
         userId: ctx.user.id,
         apiKeyId: ctx.apiKey,
         model: finalModel,
-        provider: upstreamInfo.upstreamId,
+        provider: finalRoute.upstreamId,
         modelOwner,
         canonicalModel: canonicalRequested,
-        upstream: upstreamInfo.upstreamId,
-        upstreamModel: upstreamInfo.upstreamModelId,
-        routePriority: 1,
-        attemptNumber: 1,
+        upstream: finalRoute.upstreamId,
+        upstreamModel: finalRoute.upstreamModelId,
+        routePriority: finalRoute.priority,
+        attemptNumber: lastAttempt?.attemptNumber ?? attempts.length,
+        attempts,
+        fallbackUsed,
+        fallbackUpstream,
         success: true,
         inputTokens,
         outputTokens: outTokens,
@@ -530,10 +546,13 @@ export class DecisionEngine {
         canonicalModel: canonicalRequested,
         approvedModel: finalModel,
         modelOwner,
-        upstream: upstreamInfo.upstreamId,
-        upstreamModel: upstreamInfo.upstreamModelId,
-        routePriority: 1,
-        attemptNumber: 1,
+        upstream: finalRoute.upstreamId,
+        upstreamModel: finalRoute.upstreamModelId,
+        routePriority: finalRoute.priority,
+        attemptNumber: lastAttempt?.attemptNumber ?? attempts.length,
+        attempts,
+        fallbackUsed,
+        fallbackUpstream,
         success: true,
         overridden: ctx.request.payload.model !== finalModel,
         estimatedCostUsd,
@@ -553,10 +572,19 @@ export class DecisionEngine {
         void agentGuardService.incrementErrors(ctx.agent.sessionId)
       }
 
+      const routeAttempts: RouteAttempt[] = (providerErr as any)?.routeAttempts ?? []
+      const lastAttempt = routeAttempts[routeAttempts.length - 1]
+      const failedUpstream = lastAttempt?.upstream ?? upstreamInfo.upstreamId
+      const failedUpstreamModel = lastAttempt?.upstreamModelId ?? upstreamInfo.upstreamModelId
+      const failedRoutePriority = lastAttempt?.routePriority ?? 1
+      const failedAttemptNumber = lastAttempt?.attemptNumber ?? 1
+      const failedErrorCategory = lastAttempt?.errorCategory ?? 'SERVER_ERROR'
+      const fallbackUsed = routeAttempts.length > 1
+      const fallbackUpstream = fallbackUsed ? failedUpstream : undefined
+
       if (providerErr instanceof ProviderRequestError) {
         await releaseReservation()
 
-        // Only mark upstream unhealthy for infrastructure/availability failures
         const healthDegradingCodes = new Set([
           'PROVIDER_UNAVAILABLE', 'PROVIDER_TIMEOUT', 'PROVIDER_NETWORK', 'PROVIDER_ERROR'
         ])
@@ -589,22 +617,25 @@ export class DecisionEngine {
 
         const canonicalRequested = canonicalizeModelId(ctx.request.payload.model)
         const modelOwner = getModelOwner(finalModel) ?? 'unknown'
-        
+
         void analyticsService.recordCall({
           orgId: ctx.organization.id,
           teamId: ctx.team.id,
           userId: ctx.user.id,
           apiKeyId: ctx.apiKey,
           model: finalModel,
-          provider: upstreamInfo.upstreamId,
+          provider: failedUpstream,
           modelOwner,
           canonicalModel: canonicalRequested,
-          upstream: upstreamInfo.upstreamId,
-          upstreamModel: upstreamInfo.upstreamModelId,
-          routePriority: 1,
-          attemptNumber: 1,
+          upstream: failedUpstream,
+          upstreamModel: failedUpstreamModel,
+          routePriority: failedRoutePriority,
+          attemptNumber: failedAttemptNumber,
+          attempts: routeAttempts,
+          fallbackUsed,
+          fallbackUpstream,
           success: false,
-          normalizedErrorCategory: providerErr.code,
+          normalizedErrorCategory: failedErrorCategory,
           inputTokens: 0,
           outputTokens: 0,
           costMicros: 0,
@@ -631,22 +662,25 @@ export class DecisionEngine {
 
         const canonicalRequested = canonicalizeModelId(ctx.request.payload.model)
         const modelOwner = getModelOwner(finalModel) ?? 'unknown'
-        
+
         void analyticsService.recordCall({
           orgId: ctx.organization.id,
           teamId: ctx.team.id,
           userId: ctx.user.id,
           apiKeyId: ctx.apiKey,
           model: finalModel,
-          provider: upstreamInfo.upstreamId,
+          provider: failedUpstream,
           modelOwner,
           canonicalModel: canonicalRequested,
-          upstream: upstreamInfo.upstreamId,
-          upstreamModel: upstreamInfo.upstreamModelId,
-          routePriority: 1,
-          attemptNumber: 1,
+          upstream: failedUpstream,
+          upstreamModel: failedUpstreamModel,
+          routePriority: failedRoutePriority,
+          attemptNumber: failedAttemptNumber,
+          attempts: routeAttempts,
+          fallbackUsed,
+          fallbackUpstream,
           success: false,
-          normalizedErrorCategory: 'UPSTREAM_UNAVAILABLE',
+          normalizedErrorCategory: failedErrorCategory,
           inputTokens: 0,
           outputTokens: 0,
           costMicros: 0,
