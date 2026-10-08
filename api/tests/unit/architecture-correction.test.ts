@@ -12,19 +12,22 @@ import { ModelsDevCatalogSource } from '../../src/catalog-sources/models-dev-sou
 class FakeExternalCatalogSource {
   id = 'fake-external'
   async discover() {
-    return [
-      {
-        id: 'new-provider/new-model-xyz',
-        owner: 'new-provider',
-        family: 'test',
-        tier: 'low',
-        capabilityScore: 2,
-        cost: { input: 1, output: 2 },
-        supportsCoding: true,
-        supportsReasoning: false,
-        supportsVision: false,
-      },
-    ]
+    return {
+      ok: true,
+      models: [
+        {
+          id: 'new-provider/new-model-xyz',
+          owner: 'new-provider',
+          family: 'test',
+          tier: 'low',
+          capabilityScore: 2,
+          cost: { input: 1, output: 2 },
+          supportsCoding: true,
+          supportsReasoning: false,
+          supportsVision: false,
+        },
+      ],
+    }
   }
 }
 
@@ -32,7 +35,7 @@ class FakeExternalCatalogSource {
 class FailingCatalogSource {
   id = 'failing-source'
   async discover() {
-    throw new Error('Catalog unavailable')
+    return { ok: false, error: 'Catalog unavailable' }
   }
 }
 
@@ -135,13 +138,37 @@ describe('Architecture Correction — Catalog Independence', () => {
     class SourceA {
       id = 'source-a'
       async discover() {
-        return [{ id: 'test/model-a', owner: 'test', tier: 'low', capabilityScore: 1, cost: { input: 1, output: 1 }, supportsCoding: false }]
+        return {
+          ok: true,
+          models: [
+            {
+              id: 'test/model-a',
+              owner: 'test',
+              tier: 'low',
+              capabilityScore: 1,
+              cost: { input: 1, output: 1 },
+              supportsCoding: false,
+            },
+          ],
+        }
       }
     }
     class SourceB {
       id = 'source-b'
       async discover() {
-        return [{ id: 'test/model-b', owner: 'test', tier: 'high', capabilityScore: 3, cost: { input: 5, output: 10 }, supportsCoding: true }]
+        return {
+          ok: true,
+          models: [
+            {
+              id: 'test/model-b',
+              owner: 'test',
+              tier: 'high',
+              capabilityScore: 3,
+              cost: { input: 5, output: 10 },
+              supportsCoding: true,
+            },
+          ],
+        }
       }
     }
     
@@ -159,13 +186,35 @@ describe('Architecture Correction — Catalog Independence', () => {
     class SourceFirst {
       id = 'first'
       async discover() {
-        return [{ id: 'duplicate/model', owner: 'first', tier: 'low', capabilityScore: 1, cost: { input: 1, output: 1 } }]
+        return {
+          ok: true,
+          models: [
+            {
+              id: 'duplicate/model',
+              owner: 'first',
+              tier: 'low',
+              capabilityScore: 1,
+              cost: { input: 1, output: 1 },
+            },
+          ],
+        }
       }
     }
     class SourceSecond {
       id = 'second'
       async discover() {
-        return [{ id: 'duplicate/model', owner: 'second', tier: 'high', capabilityScore: 3, cost: { input: 10, output: 20 } }]
+        return {
+          ok: true,
+          models: [
+            {
+              id: 'duplicate/model',
+              owner: 'second',
+              tier: 'high',
+              capabilityScore: 3,
+              cost: { input: 10, output: 20 },
+            },
+          ],
+        }
       }
     }
     

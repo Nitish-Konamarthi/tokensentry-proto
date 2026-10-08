@@ -12,6 +12,7 @@ import { ProviderRequestError } from '../../lib/provider-fetch.js'
 import type { UpstreamId } from '../../types/index.js'
 import { modelCatalogService } from '../../services/model-catalog-service.js'
 import { canonicalizeModelId, getModelOwner } from '../../services/canonicalize.js'
+import { isUnknownPricing } from '../../catalog-sources/models-dev-source.js'
 import {
   computeRequestHash,
   estimateTokenCount,
@@ -791,6 +792,7 @@ throw err
     const descriptor = modelCatalogService.getDescriptor(canonicalModel)
     if (!descriptor || !descriptor.cost) return 0
     // Cost comes from the catalog descriptor
+    if (isUnknownPricing(descriptor.cost)) return 0 // Unknown pricing = $0 cost for actuals, but budget estimation will handle separately
     return (inputTokens / 1_000_000) * descriptor.cost.input + (outputTokens / 1_000_000) * descriptor.cost.output
   }
 }

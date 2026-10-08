@@ -39,11 +39,8 @@ export function getModelOwner(canonicalModelId: string): string | undefined {
   if (descriptor) {
     return descriptor.owner
   }
-  // For canonical IDs not in catalog (should not happen in production), extract from ID
-  const slashIndex = canonicalModelId.indexOf('/')
-  if (slashIndex > 0) {
-    return canonicalModelId.substring(0, slashIndex)
-  }
+  // Model not in catalog - do NOT infer owner from arbitrary string
+  // Return undefined to signal unknown ownership
   return undefined
 }
 

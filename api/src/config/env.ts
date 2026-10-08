@@ -35,6 +35,7 @@ const envSchema = z.object({
   // Catalog sources (optional)
   MODELS_DEV_API_URL: z.string().url().optional(),
   OPENCODE_API_URL: z.string().url().optional(),
+  ENABLE_FIXTURE_CATALOG: z.string().optional(),
 
   // Feature flags (V1 keeps core functions only)
   MAX_PROMPT_CHARS: z.coerce.number().int().positive().default(131072),

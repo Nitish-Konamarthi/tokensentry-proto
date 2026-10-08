@@ -1,6 +1,7 @@
 import type { AuthContext } from '../types/index.js'
 import { canonicalizeModelId } from './canonicalize.js'
 import { modelCatalogService } from './model-catalog-service.js'
+import { isUnknownPricing } from '../catalog-sources/models-dev-source.js'
 
 export interface RouterDecision {
   approvedModel: string
@@ -150,10 +151,12 @@ class Router {
 
     const complexity = params.contextTokens > 8000 ? 'high' : (params.contextTokens > 2000 ? 'moderate' : 'low')
     const modelDescriptor = modelCatalogService.getDescriptor(approvedModel)
-    const costDescriptor = modelDescriptor?.cost ?? { input: 0, output: 0 }
-    const estimatedCostUsd = modelDescriptor ? 
-      (params.contextTokens / 1_000_000) * costDescriptor.input + (params.outputTokens / 1_000_000) * costDescriptor.output
-      : 0
+    const costDescriptor = modelDescriptor?.cost
+    let estimatedCostUsd = 0
+    if (modelDescriptor && costDescriptor && !isUnknownPricing(costDescriptor)) {
+      estimatedCostUsd = (params.contextTokens / 1_000_000) * costDescriptor.input + (params.outputTokens / 1_000_000) * costDescriptor.output
+    }
+    // Unknown pricing -> estimatedCostUsd = 0 (will fail closed at budget check)
 
     return {
       approvedModel,
@@ -224,6 +227,7 @@ class Router {
   estimateCost(inputTokens: number, outputTokens: number, model: string): number {
     const descriptor = modelCatalogService.getDescriptor(model)
     if (!descriptor || !descriptor.cost) return 0
+    if (isUnknownPricing(descriptor.cost)) return 0 // Unknown pricing -> $0 estimate (fail closed at budget)
     return (inputTokens / 1_000_000) * descriptor.cost.input + (outputTokens / 1_000_000) * descriptor.cost.output
   }
 

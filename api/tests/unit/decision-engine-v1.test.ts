@@ -22,15 +22,11 @@ vi.mock('../../src/services/router.js', () => ({
   },
 }))
 
-vi.mock('../../src/services/provider-router.js', () => {
-  class UpstreamUnavailableError extends Error {
-    constructor(upstream: string) {
-      super(`Upstream '${upstream}' is currently unavailable`)
-      this.name = 'UpstreamUnavailableError'
-    }
-  }
+vi.mock('../../src/services/provider-router.js', async (importOriginal) => {
+  const actual = await importOriginal()
   return {
-    UpstreamUnavailableError,
+    ...actual,
+    UpstreamUnavailableError: actual.UpstreamUnavailableError,
     providerRouter: {
       resolveUpstream: vi.fn(() => ({ upstreamId: 'anthropic-direct', upstreamModelId: 'claude-sonnet-4-6' })),
       route: vi.fn(),
@@ -185,7 +181,7 @@ describe('DecisionEngine V1 reservation lifecycle', () => {
   it('returns a safe upstream-unavailable error and releases its reservation', async () => {
     vi.mocked(getProviderApiKey).mockResolvedValue('provider-key')
     const error = new UpstreamUnavailableError('anthropic-direct')
-    error.routeAttempts = [{
+    ;(error as any).routeAttempts = [{
       attemptNumber: 1,
       upstream: 'anthropic-direct',
       upstreamModelId: 'claude-sonnet-4-6',

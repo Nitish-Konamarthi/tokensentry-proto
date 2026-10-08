@@ -11,7 +11,18 @@ export async function initializeCatalog(): Promise<void> {
     sources.push(new ModelsDevCatalogSource())
   }
 
-  sources.push(new FixtureCatalogSource())
+  // Fixture catalog is ONLY for development/test environments
+  // Production must explicitly enable it via env var
+  if (env.NODE_ENV !== 'production' || env.ENABLE_FIXTURE_CATALOG === 'true') {
+    sources.push(new FixtureCatalogSource())
+    logger.info({ env: env.NODE_ENV }, 'Fixture catalog source enabled (dev/test mode)')
+  } else {
+    logger.info({ env: env.NODE_ENV }, 'Fixture catalog source disabled (production mode)')
+  }
+
+  if (sources.length === 0) {
+    logger.warn('No catalog sources configured - catalog will be empty until sources are configured')
+  }
 
   const config: ModelCatalogServiceConfig = {
     sources,
