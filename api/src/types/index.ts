@@ -12,8 +12,16 @@ export interface ProviderCost {
   output: number
 }
 
+// Model owner is a generic string (not tied to ProviderType)
+// This allows extensibility for any provider: anthropic, openai, google, groq, mistral, meta, qwen, deepseek, etc.
+export type ModelOwner = string
+
+// Upstream execution endpoint identifiers
+export type UpstreamId = string
+
+// Legacy ProviderType kept for backward compatibility with existing provider adapters
+// This will be phased out in favor of UpstreamId
 export type ProviderType = 'anthropic' | 'openai' | 'gemini' | 'groq' | 'openrouter'
-export type UpstreamType = 'openrouter'
 
 export interface ProxyRequest {
   model: string

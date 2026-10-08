@@ -54,7 +54,18 @@ const envSchema = z.object({
   TRUSTED_PROXY_CIDRS: z.string().default('10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32'),
 })
 
-const parsed = envSchema.safeParse(process.env)
+// In test environment, use defaults for required fields if not set
+const testDefaults = process.env.NODE_ENV === 'test' ? {
+  API_KEY_PEPPER: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  ENCRYPTION_KEY: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  DATABASE_URL: 'postgresql://localhost:5432/tokensentry_test',
+  VALKEY_URL: 'redis://localhost:6379/1',
+  AUTH0_DOMAIN: 'test.tokensentry.ai',
+  AUTH0_AUDIENCE: 'https://api.tokensentry.ai',
+} : {}
+
+const envToParse = { ...testDefaults, ...process.env }
+const parsed = envSchema.safeParse(envToParse)
 
 if (!parsed.success) {
   console.error('\nMissing or invalid environment variables:\n')

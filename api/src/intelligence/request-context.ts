@@ -1,9 +1,9 @@
 import type { AuthContext, ProxyRequest } from '../types/index.js'
 import type { NormalizedProxyRequest } from './analyzer/index.js'
-import type { ProviderScore } from '../services/provider-scoring.js'
+import type { UpstreamScore } from '../services/provider-scoring.js'
 
-export interface ProviderHealthState {
-  readonly provider: string
+export interface UpstreamHealthState {
+  readonly upstream: string
   readonly healthy: boolean
   readonly lastCheckedAt: number
 }
@@ -23,9 +23,10 @@ export interface RoutingDecision {
   readonly overridden: boolean
   readonly estimatedCostUsd: number
   readonly provider: string
-  readonly upstream?: string
-  readonly upstreamModel?: string
-  readonly providerScores?: ProviderScore[]
+  readonly upstream: string
+  readonly upstreamModel: string
+  readonly modelOwner: string
+  readonly upstreamScores?: UpstreamScore[]
 }
 
 export interface AnalyticsMetadata {
@@ -68,7 +69,7 @@ export interface RequestContext {
     readonly normalized?: NormalizedProxyRequest
     readonly hash?: string
   }
-  readonly providerHealth?: ProviderHealthState
+  readonly providerHealth?: UpstreamHealthState
   readonly budgetState?: BudgetState
   readonly routingDecision?: RoutingDecision
   readonly analyticsMetadata?: AnalyticsMetadata

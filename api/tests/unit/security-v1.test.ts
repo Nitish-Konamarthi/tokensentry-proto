@@ -31,7 +31,7 @@ vi.mock('../../src/repositories/budget.js', () => ({
 
 import { BudgetService } from '../../src/services/budget.js'
 import { extractClientIp } from '../../src/lib/ip.js'
-import { providerRouter, ProviderUnavailableError } from '../../src/services/provider-router.js'
+import { providerRouter, UpstreamUnavailableError } from '../../src/services/provider-router.js'
 import { rateLimiter } from '../../src/services/rate-limiter.js'
 import { RouterService } from '../../src/services/router.js'
 import { valkey } from '../../src/clients/valkey.js'
@@ -68,12 +68,12 @@ describe('V1 security and failure contracts', () => {
     expect(extractClientIp(request)).toBe('8.8.8.8')
   })
 
-  it('rejects an unhealthy provider before invoking its adapter', async () => {
+  it('rejects an unhealthy upstream before invoking its adapter', async () => {
     vi.mocked(valkey.get).mockResolvedValueOnce('unhealthy')
 
     await expect(providerRouter.route({
-      provider: 'anthropic', model: 'claude-sonnet-4-6', apiKey: 'provider-key', messages: [],
-    })).rejects.toBeInstanceOf(ProviderUnavailableError)
+      upstream: 'anthropic-direct', upstreamModelId: 'claude-sonnet-4-6', apiKey: 'provider-key', messages: [],
+    })).rejects.toBeInstanceOf(UpstreamUnavailableError)
   })
 
   it('does not turn an unknown model into a policy fallback', async () => {
@@ -81,7 +81,7 @@ describe('V1 security and failure contracts', () => {
       requestedModel: 'nonexistent-model-xyz',
       contextTokens: 10,
       outputTokens: 10,
-      orgPolicy: { allowed_models: ['claude-haiku-4-5'] },
+      orgPolicy: { allowed_models: ['anthropic/claude-haiku-4-5'] },
     })
 
     expect(result.approvedModel).toBe('')

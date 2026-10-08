@@ -3,15 +3,16 @@ import { logger } from '../../lib/logger.js'
 import { agentGuardRepo } from '../../repositories/agent-guard.js'
 import { budgetService } from '../../services/budget.js'
 import { routerService } from '../../services/router.js'
-import { ProviderUnavailableError, providerRouter } from '../../services/provider-router.js'
+import { UpstreamUnavailableError, providerRouter } from '../../services/provider-router.js'
 import { analyticsService } from '../../services/analytics.js'
 import { agentGuardService } from '../../services/agent-guard.js'
 import { orgRepo } from '../../repositories/org.js'
 import { getProviderApiKey } from '../../services/provider-credentials.js'
 import { ProviderRequestError } from '../../lib/provider-fetch.js'
 
-import type { ProviderType } from '../../types/index.js'
-import { getModelMetadata, isKnownModel } from '../../services/model-metadata.js'
+import type { UpstreamId } from '../../types/index.js'
+import { modelCatalogService } from '../../services/model-catalog-service.js'
+import { canonicalizeModelId, getModelOwner } from '../../services/canonicalize.js'
 import {
   computeRequestHash,
   estimateTokenCount,
@@ -77,7 +78,8 @@ export class DecisionEngine {
 
     const inputTokens = estimateTokenCount(normalized.messages)
     const outputTokens = ctx.request.payload.max_tokens ?? 1024
-    const estimatedCostUsd = routerService.estimateCost(inputTokens, outputTokens, ctx.request.payload.model)
+    const canonicalRequested = canonicalizeModelId(ctx.request.payload.model)
+    const estimatedCostUsd = routerService.estimateCost(inputTokens, outputTokens, canonicalRequested)
     const estimatedCostMicros = Math.ceil(estimatedCostUsd * 1_000_000)
     const contextTokens = inputTokens
 
@@ -111,7 +113,7 @@ export class DecisionEngine {
         userId: ctx.user.id,
         apiKeyId: ctx.apiKey,
         model: ctx.request.payload.model,
-        provider: 'anthropic',
+        provider: 'unknown',
         inputTokens: 0,
         outputTokens: 0,
         costMicros: 0,
@@ -165,9 +167,11 @@ export class DecisionEngine {
     }))
 
     const finalModel = budgetCheck.fallback_model ?? routeDecision.approvedModel
-    if (!finalModel || !isKnownModel(finalModel)) {
+    const canonicalFinal = canonicalizeModelId(finalModel)
+    if (!finalModel || !modelCatalogService.isSupported(canonicalFinal)) {
       await releaseReservation()
-      const requestedModelIsKnown = isKnownModel(ctx.request.payload.model)
+      const canonicalRequested = canonicalizeModelId(ctx.request.payload.model)
+      const requestedModelIsKnown = modelCatalogService.isSupported(canonicalRequested)
       return {
         statusCode: requestedModelIsKnown ? 403 : 400,
         body: {
@@ -181,7 +185,8 @@ export class DecisionEngine {
     }
 
     const upstreamInfo = await releaseReservationOnError(() => providerRouter.resolveUpstream(finalModel))
-    const provider: ProviderType = (upstreamInfo.provider ?? upstreamInfo.upstreamId) as ProviderType
+
+    const modelOwner = getModelOwner(finalModel) ?? 'unknown'
 
     ctx = {
       ...ctx,
@@ -190,9 +195,10 @@ export class DecisionEngine {
         approvedModel: finalModel,
         overridden: ctx.request.payload.model !== finalModel,
         estimatedCostUsd,
-        provider,
+        provider: upstreamInfo.upstreamId,
         upstream: upstreamInfo.upstreamId,
         upstreamModel: upstreamInfo.upstreamModelId,
+        modelOwner,
       },
     }
 
@@ -205,7 +211,7 @@ export class DecisionEngine {
         inputTokens: contextTokens,
         outputTokens,
         toolCount: 0,
-        provider,
+        provider: upstreamInfo.upstreamId,
         budgetUtilization: budgetCheck.utilization,
         timestamp: Date.now(),
       }, ctx.request.payload.messages))
@@ -259,18 +265,17 @@ export class DecisionEngine {
       }
     }
 
-    const platformKey = await releaseReservationOnError(() => getProviderApiKey(provider, ctx.organization.id))
+    const platformKey = await releaseReservationOnError(() => getProviderApiKey(upstreamInfo.upstreamId, ctx.organization.id))
     if (!platformKey) {
       await releaseReservation()
       return {
         statusCode: 500,
-        body: { error: 'CONFIG_ERROR', message: 'Required provider is not configured', call_id: ctx.requestId },
+        body: { error: 'CONFIG_ERROR', message: 'Required upstream is not configured', call_id: ctx.requestId },
       }
     }
 
     try {
       const providerResponse = await providerRouter.routeWithFallback({
-        provider,
         model: finalModel,
         apiKey: platformKey,
         messages: ctx.request.normalized?.messages ?? ctx.request.payload.messages,
@@ -328,7 +333,7 @@ export class DecisionEngine {
                   if (trimmed.startsWith('data: ') && trimmed !== 'data: [DONE]') {
                     try {
                       const data = JSON.parse(trimmed.slice(6))
-                      const usage = this.parseStreamingUsage(provider, data)
+                      const usage = this.parseStreamingUsage(upstreamInfo.upstreamId, data)
                       if (usage) {
                         streamUsage = usage
                       }
@@ -343,7 +348,7 @@ export class DecisionEngine {
               if (buffer.trim().startsWith('data: ') && buffer.trim() !== 'data: [DONE]') {
                 try {
                   const data = JSON.parse(buffer.trim().slice(6))
-                  const usage = this.parseStreamingUsage(provider, data)
+                  const usage = this.parseStreamingUsage(upstreamInfo.upstreamId, data)
                   if (usage) {
                     streamUsage = usage
                   }
@@ -368,7 +373,7 @@ export class DecisionEngine {
             if (streamUsage) {
               finalInputTokens = streamUsage.inputTokens
               finalOutputTokens = streamUsage.outputTokens
-              finalCostMicros = Math.ceil(this.calculateProviderCost(provider, finalModel, finalInputTokens, finalOutputTokens) * 1_000_000)
+              finalCostMicros = Math.ceil(this.calculateProviderCost(upstreamInfo.upstreamId, finalModel, finalInputTokens, finalOutputTokens) * 1_000_000)
 
               await budgetService.recordActualCost({
                 orgId: ctx.organization.id,
@@ -383,13 +388,24 @@ export class DecisionEngine {
               finalCostMicros = 0
             }
 
+            const canonicalRequested = canonicalizeModelId(ctx.request.payload.model)
+            const modelOwner = getModelOwner(finalModel) ?? 'unknown'
+            
             void analyticsService.recordCall({
               orgId: ctx.organization.id,
               teamId: ctx.team.id,
               userId: ctx.user.id,
               apiKeyId: ctx.apiKey,
               model: finalModel,
-              provider,
+              provider: upstreamInfo.upstreamId,
+              modelOwner,
+              canonicalModel: canonicalRequested,
+              upstream: upstreamInfo.upstreamId,
+              upstreamModel: upstreamInfo.upstreamModelId,
+              routePriority: 1,
+              attemptNumber: 1,
+              success: !streamError,
+              normalizedErrorCategory: streamError ? 'STREAM_ERROR' : undefined,
               inputTokens: finalInputTokens,
               outputTokens: finalOutputTokens,
               costMicros: finalCostMicros,
@@ -410,7 +426,7 @@ export class DecisionEngine {
                 inputTokens: finalInputTokens,
                 outputTokens: finalOutputTokens,
                 toolCount: 0,
-                provider,
+                provider: upstreamInfo.upstreamId,
                 budgetUtilization: budgetCheck.utilization,
                 timestamp: Date.now(),
               }, ctx.request.normalized?.messages ?? ctx.request.payload.messages)
@@ -420,8 +436,8 @@ export class DecisionEngine {
       }
 
       const responseData = await providerResponse.json() as any
-      const { content, inputTokens, outputTokens: outTokens } = this.parseProviderResponse(provider, responseData)
-      const actualCostMicros = Math.ceil(this.calculateProviderCost(provider, finalModel, inputTokens, outTokens) * 1_000_000)
+      const { content, inputTokens, outputTokens: outTokens } = this.parseProviderResponse(upstreamInfo.upstreamId, responseData)
+      const actualCostMicros = Math.ceil(this.calculateProviderCost(upstreamInfo.upstreamId, finalModel, inputTokens, outTokens) * 1_000_000)
 
       await budgetService.recordActualCost({
         orgId: ctx.organization.id,
@@ -436,7 +452,7 @@ export class DecisionEngine {
           inputTokens,
           outputTokens: outTokens,
           toolCount: 0,
-          provider,
+          provider: upstreamInfo.upstreamId,
           budgetUtilization: budgetCheck.utilization,
           timestamp: Date.now(),
         }, ctx.request.normalized?.messages ?? ctx.request.payload.messages)
@@ -464,6 +480,9 @@ export class DecisionEngine {
         },
       }
 
+      const canonicalRequested = canonicalizeModelId(ctx.request.payload.model)
+      const modelOwner = getModelOwner(finalModel) ?? 'unknown'
+      
       ctx = {
         ...ctx,
         analyticsMetadata: {
@@ -479,14 +498,21 @@ export class DecisionEngine {
           decisionCompletedAt: Date.now(),
         },
       }
-
+      
       void analyticsService.recordCall({
         orgId: ctx.organization.id,
         teamId: ctx.team.id,
         userId: ctx.user.id,
         apiKeyId: ctx.apiKey,
         model: finalModel,
-        provider,
+        provider: upstreamInfo.upstreamId,
+        modelOwner,
+        canonicalModel: canonicalRequested,
+        upstream: upstreamInfo.upstreamId,
+        upstreamModel: upstreamInfo.upstreamModelId,
+        routePriority: 1,
+        attemptNumber: 1,
+        success: true,
         inputTokens,
         outputTokens: outTokens,
         costMicros: actualCostMicros,
@@ -501,14 +527,16 @@ export class DecisionEngine {
         orgId: ctx.organization.id,
         callId: ctx.requestId,
         requestedModel: ctx.request.payload.model,
+        canonicalModel: canonicalRequested,
         approvedModel: finalModel,
-        overridden: ctx.request.payload.model !== finalModel,
-        estimatedCostUsd,
-        upstream: ctx.routingDecision?.upstream,
-        upstreamModel: ctx.routingDecision?.upstreamModel,
+        modelOwner,
+        upstream: upstreamInfo.upstreamId,
+        upstreamModel: upstreamInfo.upstreamModelId,
         routePriority: 1,
         attemptNumber: 1,
         success: true,
+        overridden: ctx.request.payload.model !== finalModel,
+        estimatedCostUsd,
       })
 
       return {
@@ -528,12 +556,12 @@ export class DecisionEngine {
       if (providerErr instanceof ProviderRequestError) {
         await releaseReservation()
 
-        // Only mark provider unhealthy for infrastructure/availability failures
+        // Only mark upstream unhealthy for infrastructure/availability failures
         const healthDegradingCodes = new Set([
           'PROVIDER_UNAVAILABLE', 'PROVIDER_TIMEOUT', 'PROVIDER_NETWORK', 'PROVIDER_ERROR'
         ])
         if (healthDegradingCodes.has(providerErr.code)) {
-          void providerRouter.markProviderError(provider)
+          void providerRouter.markUpstreamError(upstreamInfo.upstreamId)
         }
 
         const statusCodeMap: Record<string, number> = {
@@ -559,13 +587,24 @@ export class DecisionEngine {
         const statusCode = statusCodeMap[providerErr.code] ?? 502
         const message = messageMap[providerErr.code] ?? 'Provider error'
 
+        const canonicalRequested = canonicalizeModelId(ctx.request.payload.model)
+        const modelOwner = getModelOwner(finalModel) ?? 'unknown'
+        
         void analyticsService.recordCall({
           orgId: ctx.organization.id,
           teamId: ctx.team.id,
           userId: ctx.user.id,
           apiKeyId: ctx.apiKey,
           model: finalModel,
-          provider,
+          provider: upstreamInfo.upstreamId,
+          modelOwner,
+          canonicalModel: canonicalRequested,
+          upstream: upstreamInfo.upstreamId,
+          upstreamModel: upstreamInfo.upstreamModelId,
+          routePriority: 1,
+          attemptNumber: 1,
+          success: false,
+          normalizedErrorCategory: providerErr.code,
           inputTokens: 0,
           outputTokens: 0,
           costMicros: 0,
@@ -587,16 +626,27 @@ export class DecisionEngine {
         }
       }
 
-      if (providerErr instanceof ProviderUnavailableError) {
+      if (providerErr instanceof UpstreamUnavailableError) {
         await releaseReservation()
 
+        const canonicalRequested = canonicalizeModelId(ctx.request.payload.model)
+        const modelOwner = getModelOwner(finalModel) ?? 'unknown'
+        
         void analyticsService.recordCall({
           orgId: ctx.organization.id,
           teamId: ctx.team.id,
           userId: ctx.user.id,
           apiKeyId: ctx.apiKey,
           model: finalModel,
-          provider,
+          provider: upstreamInfo.upstreamId,
+          modelOwner,
+          canonicalModel: canonicalRequested,
+          upstream: upstreamInfo.upstreamId,
+          upstreamModel: upstreamInfo.upstreamModelId,
+          routePriority: 1,
+          attemptNumber: 1,
+          success: false,
+          normalizedErrorCategory: 'UPSTREAM_UNAVAILABLE',
           inputTokens: 0,
           outputTokens: 0,
           costMicros: 0,
@@ -604,15 +654,15 @@ export class DecisionEngine {
           cacheHit: false,
           streamed: ctx.request.payload.stream ?? false,
           statusCode: 502,
-          error: 'PROVIDER_UNAVAILABLE',
+          error: 'UPSTREAM_UNAVAILABLE',
           callId: ctx.requestId,
         })
 
         return {
           statusCode: 502,
           body: {
-            error: 'PROVIDER_UNAVAILABLE',
-            message: 'Provider temporarily unavailable',
+            error: 'UPSTREAM_UNAVAILABLE',
+            message: 'Upstream temporarily unavailable',
             call_id: ctx.requestId,
           },
         }
@@ -624,42 +674,37 @@ export class DecisionEngine {
     }
   }
 
-  private parseProviderResponse(provider: string, data: any): { content: string; inputTokens: number; outputTokens: number } {
-    switch (provider) {
-      case 'anthropic':
+  private parseProviderResponse(upstream: string, data: any): { content: string; inputTokens: number; outputTokens: number } {
+    switch (upstream) {
+      case 'anthropic-direct':
         return {
           content: data.content?.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('') ?? '',
           inputTokens: data.usage?.input_tokens ?? 0,
           outputTokens: data.usage?.output_tokens ?? 0,
         }
-      case 'openai':
-      case 'groq':
+      case 'openai-direct':
+      case 'groq-direct':
+      case 'openrouter':
+        // OpenAI/Groq/OpenRouter return OpenAI-compatible responses
         return {
           content: data.choices?.[0]?.message?.content ?? '',
           inputTokens: data.usage?.prompt_tokens ?? 0,
           outputTokens: data.usage?.completion_tokens ?? 0,
         }
-      case 'gemini':
+      case 'gemini-direct':
         return {
           content: data.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('') ?? '',
           inputTokens: data.usageMetadata?.promptTokenCount ?? 0,
           outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
-        }
-      case 'openrouter':
-        // OpenRouter returns OpenAI-compatible responses
-        return {
-          content: data.choices?.[0]?.message?.content ?? '',
-          inputTokens: data.usage?.prompt_tokens ?? 0,
-          outputTokens: data.usage?.completion_tokens ?? 0,
         }
       default:
         return { content: '', inputTokens: 0, outputTokens: 0 }
     }
   }
 
-  private parseStreamingUsage(provider: string, data: any): { inputTokens: number; outputTokens: number } | null {
-    switch (provider) {
-      case 'anthropic':
+  private parseStreamingUsage(upstream: string, data: any): { inputTokens: number; outputTokens: number } | null {
+    switch (upstream) {
+      case 'anthropic-direct':
         // Anthropic streaming: final message has type "message_delta" with usage
         if (data.type === 'message_delta' && data.usage) {
           return {
@@ -675,9 +720,10 @@ export class DecisionEngine {
           }
         }
         return null
-      case 'openai':
-      case 'groq':
-        // OpenAI/Groq streaming: final chunk has usage in choices[0].delta or usage field
+      case 'openai-direct':
+      case 'groq-direct':
+      case 'openrouter':
+        // OpenAI/Groq/OpenRouter streaming: final chunk has usage in choices[0].delta or usage field
         if (data.usage) {
           return {
             inputTokens: data.usage.prompt_tokens ?? 0,
@@ -692,7 +738,7 @@ export class DecisionEngine {
           }
         }
         return null
-      case 'gemini':
+      case 'gemini-direct':
         // Gemini streaming: usageMetadata in the response
         if (data.usageMetadata) {
           return {
@@ -701,35 +747,17 @@ export class DecisionEngine {
           }
         }
         return null
-      case 'openrouter':
-        // OpenRouter streaming: same as openai
-        if (data.usage) {
-          return {
-            inputTokens: data.usage.prompt_tokens ?? 0,
-            outputTokens: data.usage.completion_tokens ?? 0,
-          }
-        }
-        if (data.choices?.[0]?.finish_reason && data.usage) {
-          return {
-            inputTokens: data.usage.prompt_tokens ?? 0,
-            outputTokens: data.usage.completion_tokens ?? 0,
-          }
-        }
-        return null
       default:
         return null
     }
   }
 
-  private calculateProviderCost(provider: string, model: string, inputTokens: number, outputTokens: number): number {
-    const meta = getModelMetadata(model)
-    if (!meta || !meta.cost) return 0
-    // For V1, openrouter upstream uses the same cost structure as the underlying model provider
-    // We allow cost lookup for any registered model regardless of provider mapping.
-    if (provider === 'openrouter' || meta.provider === provider) {
-      return (inputTokens / 1_000_000) * meta.cost.input + (outputTokens / 1_000_000) * meta.cost.output
-    }
-    return 0
+  private calculateProviderCost(upstream: string, model: string, inputTokens: number, outputTokens: number): number {
+    const canonicalModel = canonicalizeModelId(model)
+    const descriptor = modelCatalogService.getDescriptor(canonicalModel)
+    if (!descriptor || !descriptor.cost) return 0
+    // Cost comes from the catalog descriptor
+    return (inputTokens / 1_000_000) * descriptor.cost.input + (outputTokens / 1_000_000) * descriptor.cost.output
   }
 }
 

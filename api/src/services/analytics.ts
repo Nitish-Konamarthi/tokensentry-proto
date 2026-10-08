@@ -6,8 +6,13 @@ import { analyticsDispatcher } from '../analytics/dispatcher/index.js'
 export interface CallRecord {
   orgId: string; teamId: string; userId?: string; apiKeyId?: string
   model: string; provider: string
-  inputTokens: number; outputTokens: number; costMicros: number
-  durationMs: number; cacheHit: boolean; streamed: boolean
+  modelOwner?: string; canonicalModel?: string
+  upstream?: string; upstreamModel?: string
+  routePriority?: number; attemptNumber?: number
+  fallbackUpstream?: string; success?: boolean
+  normalizedErrorCategory?: string
+  durationMs: number; inputTokens: number; outputTokens: number; costMicros: number
+  cacheHit: boolean; streamed: boolean
   statusCode: number; error?: string
   usageEstimated?: boolean
   callId?: string
@@ -33,6 +38,15 @@ export class AnalyticsService {
         requestMetadata,
         model: params.model,
         provider: params.provider,
+        modelOwner: params.modelOwner,
+        canonicalModel: params.canonicalModel,
+        upstream: params.upstream,
+        upstreamModel: params.upstreamModel,
+        routePriority: params.routePriority,
+        attemptNumber: params.attemptNumber,
+        fallbackUpstream: params.fallbackUpstream,
+        success: params.success,
+        normalizedErrorCategory: params.normalizedErrorCategory,
         durationMs: params.durationMs,
         inputTokens: params.inputTokens,
         outputTokens: params.outputTokens,
@@ -55,24 +69,21 @@ export class AnalyticsService {
 
   async recordRouting(params: {
     orgId: string; callId: string
-    requestedModel: string; recommendedModel?: string; approvedModel: string
+    requestedModel: string; canonicalModel?: string; approvedModel: string
+    modelOwner?: string; upstream?: string; upstreamModel?: string
+    routePriority?: number; attemptNumber?: number; fallbackUpstream?: string
+    success?: boolean; normalizedErrorCategory?: string
     complexity?: string; confidence?: number; reasoning?: string
     estimatedCostUsd?: number; overridden?: boolean
-    upstream?: string; upstreamModel?: string; routePriority?: number
-    attemptNumber?: number; fallbackUpstream?: string; success?: boolean
-    normalizedErrorCategory?: string
   }): Promise<void> {
     try {
       await this.dispatcher.recordRouting({
         orgId: params.orgId,
         callId: params.callId,
         requestedModel: params.requestedModel,
+        canonicalModel: params.canonicalModel,
         approvedModel: params.approvedModel,
-        overridden: params.overridden,
-        estimatedCostUsd: params.estimatedCostUsd,
-        complexity: params.complexity,
-        confidence: params.confidence,
-        reasoning: params.reasoning,
+        modelOwner: params.modelOwner,
         upstream: params.upstream,
         upstreamModel: params.upstreamModel,
         routePriority: params.routePriority,
@@ -80,6 +91,11 @@ export class AnalyticsService {
         fallbackUpstream: params.fallbackUpstream,
         success: params.success,
         normalizedErrorCategory: params.normalizedErrorCategory,
+        complexity: params.complexity,
+        confidence: params.confidence,
+        reasoning: params.reasoning,
+        estimatedCostUsd: params.estimatedCostUsd,
+        overridden: params.overridden,
       })
     } catch (err) {
       logger.error({ err }, 'Failed to dispatch routing analytics')

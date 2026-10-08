@@ -4,13 +4,12 @@ import { callOpenAI } from '../clients/providers/openai.js'
 import { callGemini } from '../clients/providers/gemini.js'
 import { callGroq } from '../clients/providers/groq.js'
 import { logger } from '../lib/logger.js'
-import type { ProviderType } from '../types/index.js'
-import { getModelProvider } from './model-metadata.js'
 import { MODEL_ROUTES, getRoutesForModel } from './model-routes.js'
 import { openRouterAdapter } from '../clients/upstreams/openrouter.js'
+import type { UpstreamId } from '../types/index.js'
 
-export interface ProviderHealthState {
-  provider: ProviderType
+export interface UpstreamHealthState {
+  upstream: UpstreamId
   healthy: boolean
   lastCheckedAt: number
 }
@@ -22,16 +21,16 @@ export class UnsupportedModelError extends Error {
   }
 }
 
-export class ProviderUnavailableError extends Error {
-  constructor(provider: string) {
-    super(`Provider '${provider}' is currently unavailable`)
-    this.name = 'ProviderUnavailableError'
+export class UpstreamUnavailableError extends Error {
+  constructor(upstream: UpstreamId) {
+    super(`Upstream '${upstream}' is currently unavailable`)
+    this.name = 'UpstreamUnavailableError'
   }
 }
 
-interface ProviderRouteParams {
-  provider: ProviderType
-  model: string
+interface UpstreamRouteParams {
+  upstream: UpstreamId
+  upstreamModelId: string
   apiKey: string
   messages: Array<{ role: string; content: string }>
   system?: string
@@ -41,25 +40,57 @@ interface ProviderRouteParams {
 }
 
 export class ProviderRouterService {
-  async route(params: ProviderRouteParams): Promise<Response> {
-    // Check provider health before calling
-    const health = await this.checkProviderHealth(params.provider)
+  async route(params: UpstreamRouteParams): Promise<Response> {
+    // Check upstream health before calling
+    const health = await this.checkUpstreamHealth(params.upstream)
     if (!health.healthy) {
-      throw new ProviderUnavailableError(params.provider)
+      throw new UpstreamUnavailableError(params.upstream)
     }
 
-    switch (params.provider) {
-      case 'anthropic':
-        return callAnthropic(params)
-      case 'openai':
-        return callOpenAI(params)
-      case 'gemini':
-        return callGemini(params)
-      case 'groq':
-        return callGroq(params)
+    switch (params.upstream) {
+      case 'anthropic-direct':
+        return callAnthropic({
+          model: params.upstreamModelId,
+          messages: params.messages,
+          system: params.system,
+          maxTokens: params.maxTokens,
+          temperature: params.temperature,
+          stream: params.stream,
+          apiKey: params.apiKey,
+        })
+      case 'openai-direct':
+        return callOpenAI({
+          model: params.upstreamModelId,
+          messages: params.messages,
+          system: params.system,
+          maxTokens: params.maxTokens,
+          temperature: params.temperature,
+          stream: params.stream,
+          apiKey: params.apiKey,
+        })
+      case 'gemini-direct':
+        return callGemini({
+          model: params.upstreamModelId,
+          messages: params.messages,
+          system: params.system,
+          maxTokens: params.maxTokens,
+          temperature: params.temperature,
+          stream: params.stream,
+          apiKey: params.apiKey,
+        })
+      case 'groq-direct':
+        return callGroq({
+          model: params.upstreamModelId,
+          messages: params.messages,
+          system: params.system,
+          maxTokens: params.maxTokens,
+          temperature: params.temperature,
+          stream: params.stream,
+          apiKey: params.apiKey,
+        })
       case 'openrouter':
         return openRouterAdapter.chat({
-          model: params.model,
+          model: params.upstreamModelId,
           messages: params.messages,
           system: params.system,
           maxTokens: params.maxTokens,
@@ -67,38 +98,52 @@ export class ProviderRouterService {
           stream: params.stream,
         })
       default:
-        throw new Error(`Unknown provider: ${params.provider}`)
+        throw new Error(`Unknown upstream: ${params.upstream}`)
     }
   }
 
-  async routeWithFallback(params: ProviderRouteParams): Promise<Response> {
-    // Try routes in priority order with bounded retries (max 2 attempts per route, 1 fallback max)
+  async routeWithFallback(params: {
+    model: string
+    apiKey: string
+    messages: Array<{ role: string; content: string }>
+    system?: string
+    maxTokens?: number
+    temperature?: number
+    stream?: boolean
+  }): Promise<Response> {
+    // Try routes in priority order with bounded retries
     const routes = getRoutesForModel(params.model)
+    if (routes.length === 0) {
+      throw new UnsupportedModelError(params.model)
+    }
     const sorted = routes.sort((a, b) => a.priority - b.priority)
-    // If no routes configured, fall back to direct provider resolution
-    const candidates = sorted.length > 0 ? sorted : [{ upstreamId: params.provider, upstreamModelId: params.model, priority: 1, enabled: true, modelId: params.model }]
+    const candidates = sorted
 
     let lastError: Error | null = null
     for (const route of candidates) {
-      const upstreamProvider = route.upstreamId as ProviderType
       try {
         // Only attempt if route is enabled and upstream is healthy
-        const health = await this.checkProviderHealth(upstreamProvider)
+        const health = await this.checkUpstreamHealth(route.upstreamId)
         if (!health.healthy) {
-          logger.warn({ upstream: upstreamProvider, model: params.model }, 'Upstream unhealthy, trying next route')
+          logger.warn({ upstream: route.upstreamId, model: params.model }, 'Upstream unhealthy, trying next route')
           continue
         }
         const upstreamParams = {
-          ...params,
-          provider: upstreamProvider,
-          model: route.upstreamModelId,
+          upstream: route.upstreamId,
+          upstreamModelId: route.upstreamModelId,
+          apiKey: params.apiKey,
+          messages: params.messages,
+          system: params.system,
+          maxTokens: params.maxTokens,
+          temperature: params.temperature,
+          stream: params.stream,
         }
         return await this.route(upstreamParams)
       } catch (err: any) {
         lastError = err
-        const isRetryable = err instanceof ProviderUnavailableError || (err.name === 'ProviderRequestError' && (err as any).retryable)
+        const isRetryable = this.isRetryableError(err)
         if (isRetryable && route !== candidates[candidates.length - 1]) {
-          logger.info({ upstream: upstreamProvider, model: params.model, error: err.message }, 'Retryable upstream error; attempting fallback route')
+          logger.info({ upstream: route.upstreamId, model: params.model, error: err.message }, 'Retryable upstream error; attempting fallback route')
           continue
         }
         throw err
@@ -110,7 +155,23 @@ export class ProviderRouterService {
     throw new UnsupportedModelError(params.model)
   }
 
-  resolveUpstream(model: string): { upstreamId: string; upstreamModelId: string; provider?: ProviderType } {
+  /**
+   * Classifies errors as retryable or non-retryable.
+   * Retryable: timeout, network failure, temporary unavailable, 5xx
+   * Non-retryable: auth failure, invalid API key, malformed request, policy rejection, budget rejection, unsupported model, Agent Guard block
+   */
+  private isRetryableError(err: any): boolean {
+    if (err instanceof UpstreamUnavailableError) return true
+    if (err.name === 'ProviderRequestError' && err.retryable) return true
+    // Network errors, timeouts, 5xx errors are retryable
+    if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'ENOTFOUND') return true
+    if (err.status >= 500 && err.status < 600) return true
+    // Auth failures, bad requests, policy/budget rejections are NOT retryable
+    if (err.status === 401 || err.status === 403 || err.status === 400 || err.status === 402 || err.status === 429) return false
+    return false
+  }
+
+  resolveUpstream(model: string): { upstreamId: UpstreamId; upstreamModelId: string } {
     const routes = getRoutesForModel(model)
     if (routes.length > 0) {
       // Sort by priority ascending (lower number = higher priority)
@@ -122,61 +183,44 @@ export class ProviderRouterService {
       return {
         upstreamId: best.upstreamId,
         upstreamModelId: best.upstreamModelId,
-        provider: best.upstreamId as ProviderType,
       }
     }
 
-    // Fallback to legacy registry mapping for backward compatibility
-    const provider = getModelProvider(model)
-    if (!provider) {
-      throw new UnsupportedModelError(model)
-    }
-    return {
-      upstreamId: provider,
-      upstreamModelId: model,
-      provider,
-    }
+    // No routes found - model is not routable through any upstream
+    throw new UnsupportedModelError(model)
   }
 
-  resolveProvider(model: string): ProviderType {
-    const upstream = this.resolveUpstream(model)
-    if (!upstream.provider) {
-      throw new UnsupportedModelError(model)
-    }
-    return upstream.provider
-  }
-
-  async checkProviderHealth(provider: ProviderType): Promise<ProviderHealthState> {
-    if (provider === 'openrouter') {
+  async checkUpstreamHealth(upstream: UpstreamId): Promise<UpstreamHealthState> {
+    if (upstream === 'openrouter') {
       const health = await openRouterAdapter.health()
       return {
-        provider,
+        upstream,
         healthy: health.healthy,
         lastCheckedAt: health.lastCheckedAt,
       }
     }
-    const healthy = await this.getProviderHealth(provider)
+    const healthy = await this.getUpstreamHealth(upstream)
     return {
-      provider,
+      upstream,
       healthy,
       lastCheckedAt: Date.now(),
     }
   }
 
-  private async getProviderHealth(provider: string): Promise<boolean> {
-    const key = ValkeyKeys.providerHealth(provider)
+  private async getUpstreamHealth(upstream: string): Promise<boolean> {
+    const key = ValkeyKeys.providerHealth(upstream)
     const status = await valkey.get(key)
     if (status === 'unhealthy') {
-      logger.warn({ provider }, 'Provider marked unhealthy')
+      logger.warn({ upstream }, 'Upstream marked unhealthy')
       return false
     }
     return true
   }
 
-  async markProviderError(provider: string): Promise<void> {
-    const key = ValkeyKeys.providerHealth(provider)
+  async markUpstreamError(upstream: UpstreamId): Promise<void> {
+    const key = ValkeyKeys.providerHealth(upstream)
     await valkey.setex(key, 300, 'unhealthy') // 5 min cooldown
-    logger.error({ provider }, 'Provider marked unhealthy')
+    logger.error({ upstream }, 'Upstream marked unhealthy')
   }
 }
 

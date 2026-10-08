@@ -1,4 +1,4 @@
-import type { ProviderHealthState } from './provider-router.js'
+import type { UpstreamHealthState } from './provider-router.js'
 
 export interface NormalizedRequest {
   model: string

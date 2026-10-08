@@ -1,9 +1,9 @@
 import { providerRouter } from './provider-router.js'
-import type { ProviderType } from '../types/index.js'
-import { getCapabilityScore, MODEL_COSTS } from './model-metadata.js'
-import type { ProviderHealthState } from './provider-router.js'
+import { modelCatalogService } from './model-catalog-service.js'
+import type { UpstreamId } from '../types/index.js'
+import type { UpstreamHealthState } from './provider-router.js'
 
-export interface ProviderScoreComponents {
+export interface UpstreamScoreComponents {
   latency: number
   cost: number
   capability: number
@@ -11,11 +11,12 @@ export interface ProviderScoreComponents {
   preference: number
 }
 
-export interface ProviderScore {
+export interface UpstreamScore {
   model: string
-  provider: ProviderType
+  upstream: UpstreamId
+  upstreamModelId: string
   totalScore: number
-  components: ProviderScoreComponents
+  components: UpstreamScoreComponents
 }
 
 interface ScoreInput {
@@ -26,12 +27,12 @@ interface ScoreInput {
   outputTokens: number
 }
 
-const DEFAULT_LATENCIES_MS: Record<ProviderType, number> = {
-  anthropic: 300,
-  openai: 200,
-  gemini: 250,
-  groq: 180,
-  openrouter: 250,
+const DEFAULT_LATENCIES_MS: Record<UpstreamId, number> = {
+  'anthropic-direct': 300,
+  'openai-direct': 200,
+  'gemini-direct': 250,
+  'groq-direct': 180,
+  'openrouter': 250,
 }
 
 const WEIGHTS = {
@@ -46,28 +47,33 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value))
 }
 
-function computeLatencyScore(provider: ProviderType): number {
-  const latency = DEFAULT_LATENCIES_MS[provider] ?? 300
+function computeLatencyScore(upstream: UpstreamId): number {
+  const latency = DEFAULT_LATENCIES_MS[upstream] ?? 300
   return clamp01(1 - latency / Math.max(...Object.values(DEFAULT_LATENCIES_MS)))
 }
 
-function computeCostScore(model: string, inputTokens: number, outputTokens: number): number {
-  const costs = MODEL_COSTS[model]
-  if (!costs) return 0.5
+function computeCostScore(model: string, upstreamModelId: string, inputTokens: number, outputTokens: number): number {
+  const descriptor = modelCatalogService.getDescriptor(model)
+  const costs = descriptor?.cost ?? { input: 0, output: 0 }
   const cost = (inputTokens / 1_000_000) * costs.input + (outputTokens / 1_000_000) * costs.output
-  const maxCost = Math.max(...Object.values(MODEL_COSTS).map((c) => {
+  // Find max cost across all supported descriptors for normalization
+  const allSupported = modelCatalogService.listSupported()
+  const maxCost = Math.max(0.001, ...allSupported.map(id => {
+    const d = modelCatalogService.getDescriptor(id)
+    const c = d?.cost ?? { input: 0, output: 0 }
     return (inputTokens / 1_000_000) * c.input + (outputTokens / 1_000_000) * c.output
   }))
-  return clamp01(1 - cost / Math.max(maxCost, 1))
+  return clamp01(1 - cost / maxCost)
 }
 
 function computeCapabilityScore(model: string): number {
-  const score = getCapabilityScore(model)
+  const descriptor = modelCatalogService.getDescriptor(model)
+  const score = descriptor?.capabilityScore ?? 0
   if (score === 0) return 0.5
   return score / 4  // normalize from 1-4 to 0.25-1.0
 }
 
-function computeHealthScore(healthState: ProviderHealthState): number {
+function computeHealthScore(healthState: UpstreamHealthState): number {
   return healthState.healthy ? 1 : 0.1
 }
 
@@ -79,18 +85,30 @@ function computePreferenceScore(model: string, allowedModels: string[]): number 
 }
 
 export class ProviderScoringEngine {
-  async scoreProviders(params: ScoreInput): Promise<ProviderScore[]> {
-    const healthStates = await this.getHealthStates(params.models)
+  async scoreUpstreams(params: ScoreInput): Promise<UpstreamScore[]> {
+    const allRoutes: Array<{ model: string; upstream: UpstreamId; upstreamModelId: string }> = []
+    
+    for (const model of params.models) {
+      const routes = (await import('./model-routes.js')).getRoutesForModel(model)
+      for (const route of routes) {
+        allRoutes.push({
+          model,
+          upstream: route.upstreamId,
+          upstreamModelId: route.upstreamModelId,
+        })
+      }
+    }
 
-    return params.models.map((model) => {
-      const provider = providerRouter.resolveProvider(model)
-      const healthState = healthStates[provider]
-      const components: ProviderScoreComponents = {
-        latency: computeLatencyScore(provider),
-        cost: computeCostScore(model, params.contextTokens, params.outputTokens),
-        capability: computeCapabilityScore(model),
+    const healthStates = await this.getHealthStates(allRoutes.map(r => r.upstream))
+
+    return allRoutes.map((route) => {
+      const healthState = healthStates[route.upstream] ?? { upstream: route.upstream, healthy: true, lastCheckedAt: Date.now() }
+      const components: UpstreamScoreComponents = {
+        latency: computeLatencyScore(route.upstream),
+        cost: computeCostScore(route.model, route.upstreamModelId, params.contextTokens, params.outputTokens),
+        capability: computeCapabilityScore(route.model),
         health: computeHealthScore(healthState),
-        preference: computePreferenceScore(model, params.orgPolicy.allowed_models ?? []),
+        preference: computePreferenceScore(route.model, params.orgPolicy.allowed_models ?? []),
       }
 
       const totalScore = clamp01(
@@ -102,22 +120,23 @@ export class ProviderScoringEngine {
       )
 
       return {
-        model,
-        provider,
+        model: route.model,
+        upstream: route.upstream,
+        upstreamModelId: route.upstreamModelId,
         totalScore,
         components,
       }
     })
   }
 
-  private async getHealthStates(models: string[]): Promise<Record<ProviderType, ProviderHealthState>> {
-    const providers = Array.from(new Set(models.map((model) => providerRouter.resolveProvider(model)))) as ProviderType[]
-    const entries = await Promise.all(providers.map(async (provider) => ({
-      provider,
-      healthState: await providerRouter.checkProviderHealth(provider),
+  private async getHealthStates(upstreams: UpstreamId[]): Promise<Record<UpstreamId, UpstreamHealthState>> {
+    const uniqueUpstreams = Array.from(new Set(upstreams))
+    const entries = await Promise.all(uniqueUpstreams.map(async (upstream) => ({
+      upstream,
+      healthState: await providerRouter.checkUpstreamHealth(upstream),
     })))
 
-    return Object.fromEntries(entries.map((entry) => [entry.provider, entry.healthState])) as Record<ProviderType, ProviderHealthState>
+    return Object.fromEntries(entries.map((entry) => [entry.upstream, entry.healthState])) as Record<UpstreamId, UpstreamHealthState>
   }
 }
 

@@ -11,6 +11,7 @@ export async function callGroq(params: {
   system?: string
   maxTokens?: number
   temperature?: number
+  stream?: boolean
 }): Promise<Response> {
   const messages = params.system
     ? [{ role: 'system', content: params.system }, ...params.messages]
@@ -28,6 +29,7 @@ export async function callGroq(params: {
       messages,
       max_tokens: params.maxTokens ?? 1024,
       temperature: params.temperature ?? 1,
+      stream: params.stream ?? false,
     }),
   }, 'groq')
 }

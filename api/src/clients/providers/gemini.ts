@@ -4,12 +4,6 @@ import { fetchWithTimeoutAndRetry } from '../../lib/provider-fetch.js'
 
 const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
 
-export const GEMINI_COSTS: Record<string, { input: number; output: number }> = {
-  'gemini-2.5-pro':   { input: 1.25, output: 10.00 },
-  'gemini-2.5-flash': { input: 0.15, output: 0.60 },
-  'gemini-2.0-flash': { input: 0.10, output: 0.40 },
-}
-
 export async function callGemini(params: {
   apiKey: string
   model: string
@@ -39,12 +33,6 @@ export async function callGemini(params: {
       },
     }),
   }, 'gemini')
-}
-
-export function calculateGeminiCost(model: string, inputTokens: number, outputTokens: number): number {
-  const costs = GEMINI_COSTS[model]
-  if (!costs) return 0
-  return (inputTokens / 1_000_000) * costs.input + (outputTokens / 1_000_000) * costs.output
 }
 
 export function parseGeminiResponse(response: any): {

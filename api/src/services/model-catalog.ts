@@ -1,19 +1,21 @@
-import type { ProviderType } from '../types/index.js'
+import type { ModelOwner } from '../types/index.js'
 
 export interface ModelDescriptor {
   id: string
-  provider: ProviderType
-  family: string
-  tier: 'low' | 'standard' | 'high' | 'premium'
-  capabilityScore: number
-  cost: { input: number; output: number }
+  owner: ModelOwner
+  family?: string
+  tier?: 'low' | 'standard' | 'high' | 'premium'
+  capabilityScore?: number
+  cost?: { input: number; output: number }
   supportsCoding?: boolean
   supportsReasoning?: boolean
   supportsVision?: boolean
+  contextWindow?: number
   metadata?: Record<string, unknown>
 }
 
 export interface CatalogSource {
+  id: string
   discover(): Promise<ModelDescriptor[]>
   refresh?(): Promise<void>
 }
@@ -46,15 +48,15 @@ export class ModelCatalog {
     return this.snapshot.filter(m => m.tier === tier)
   }
 
-  getByProvider(provider: ProviderType): ModelDescriptor[] {
-    return this.snapshot.filter(m => m.provider === provider)
+  getByOwner(owner: string): ModelDescriptor[] {
+    return this.snapshot.filter(m => m.owner === owner)
   }
 
   getLowestTier(): ModelDescriptor | undefined {
     return this.snapshot.sort((a, b) => {
       const tierOrder = ['low', 'standard', 'high', 'premium']
-      const indexA = tierOrder.indexOf(a.tier)
-      const indexB = tierOrder.indexOf(b.tier)
+      const indexA = tierOrder.indexOf(a.tier ?? 'standard')
+      const indexB = tierOrder.indexOf(b.tier ?? 'standard')
       return indexA - indexB
     })[0]
   }
@@ -62,14 +64,14 @@ export class ModelCatalog {
   getHighestTier(): ModelDescriptor | undefined {
     return this.snapshot.sort((a, b) => {
       const tierOrder = ['low', 'standard', 'high', 'premium']
-      const indexA = tierOrder.indexOf(a.tier)
-      const indexB = tierOrder.indexOf(b.tier)
+      const indexA = tierOrder.indexOf(a.tier ?? 'standard')
+      const indexB = tierOrder.indexOf(b.tier ?? 'standard')
       return indexB - indexA
     })[0]
   }
 
   getSupportedTiers(): string[] {
-    const tiers = new Set(this.snapshot.map(m => m.tier))
+    const tiers = new Set(this.snapshot.map(m => m.tier ?? 'standard'))
     return Array.from(tiers).sort((a, b) => {
       const order = ['low', 'standard', 'high', 'premium']
       return order.indexOf(a) - order.indexOf(b)

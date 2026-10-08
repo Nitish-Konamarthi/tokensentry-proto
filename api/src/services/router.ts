@@ -1,5 +1,5 @@
 import type { AuthContext } from '../types/index.js'
-import { MODEL_TIERS, getBestPermittedModel, getAllowedModels, getModelMetadata, isKnownModel } from './model-metadata.js'
+import { canonicalizeModelId } from './canonicalize.js'
 import { modelCatalogService } from './model-catalog-service.js'
 
 export interface RouterDecision {
@@ -26,19 +26,44 @@ class PolicyEvaluator {
     requestedModel: string
     orgPolicy: { allowed_models?: string[]; max_model_tier?: string }
   }): PolicyEvaluation {
-    const allowedResult = getAllowedModels(params.orgPolicy.allowed_models)
+    const canonicalRequested = canonicalizeModelId(params.requestedModel)
+    const descriptor = modelCatalogService.getDescriptor(canonicalRequested)
+    const allowedResult = this.getAllowedModels(params.orgPolicy.allowed_models)
     const allowedModels = allowedResult.permitted
-    const requestedModel = params.requestedModel
-    const meta = getModelMetadata(requestedModel)
+    const requestedModel = canonicalRequested
+
     return {
       requestedModel,
       allowedModels,
-      isRequestedAllowed: allowedModels.includes(requestedModel),
-      requestedTier: meta?.tier,
-      requestedProvider: meta?.provider,
+      isRequestedAllowed: allowedModels.includes(canonicalRequested),
+      requestedTier: descriptor?.tier,
+      requestedProvider: descriptor?.owner,
       hasRestriction: allowedResult.hasRestriction,
       unsupportedConfigured: allowedResult.unsupportedConfigured,
     }
+  }
+
+  private getAllowedModels(allowedModels?: string[]): { permitted: string[]; hasRestriction: boolean; unsupportedConfigured: string[] } {
+    if (!allowedModels || allowedModels.length === 0) {
+      // No restriction configured: all supported catalog models are permitted
+      const allSupported = modelCatalogService.listSupported()
+      return { permitted: allSupported, hasRestriction: false, unsupportedConfigured: [] }
+    }
+
+    // Resolve canonical IDs and check catalog support
+    const permitted: string[] = []
+    const unsupportedConfigured: string[] = []
+
+    for (const model of allowedModels) {
+      const canonical = canonicalizeModelId(model)
+      if (modelCatalogService.isSupported(canonical)) {
+        permitted.push(canonical)
+      } else {
+        unsupportedConfigured.push(model)
+      }
+    }
+
+    return { permitted, hasRestriction: true, unsupportedConfigured }
   }
 }
 
@@ -54,16 +79,17 @@ class Router {
     orgPolicy: { allowed_models?: string[]; max_model_tier?: string }
     preservePriority?: 'accuracy' | 'speed' | 'cost'
   }): Promise<RouterDecision> {
-    // Availability is distinct from organization policy. A policy may replace a
-    // known-but-disallowed model, but it must never turn an unknown identifier
-    // into a supported model.
-    if (!isKnownModel(params.requestedModel)) {
+    const canonicalRequested = canonicalizeModelId(params.requestedModel)
+    const descriptor = modelCatalogService.getDescriptor(canonicalRequested)
+
+    // Unknown/unregistered models must be rejected before provider execution
+    if (!descriptor) {
       const complexity = params.contextTokens > 8000 ? 'high' : (params.contextTokens > 2000 ? 'moderate' : 'low')
       return {
         approvedModel: '',
         complexity,
         confidence: 1.0,
-        reasoning: `Model ${params.requestedModel} is not supported.`,
+        reasoning: `Model ${params.requestedModel} (canonical: ${canonicalRequested}) is not supported in the model catalog.`,
         overridden: false,
         estimatedCostUsd: 0,
       }
@@ -71,52 +97,63 @@ class Router {
 
     const evaluation = this.policyEvaluator.evaluate(params)
 
-    // Determine permitted models based on policy
-    const permittedResult = evaluation.hasRestriction
-      ? getAllowedModels(params.orgPolicy.allowed_models)
-      : { permitted: modelCatalogService.listSupported(), hasRestriction: false, unsupportedConfigured: [] }
-    let permitted = permittedResult.permitted.filter(isKnownModel)
+    // Determine permitted models based on policy using catalog descriptors
+    let permitted = evaluation.allowedModels
+    if (evaluation.hasRestriction) {
+      permitted = evaluation.allowedModels.filter(id => modelCatalogService.isSupported(id))
+    }
 
     // Enforce max_model_tier if configured
     if (params.orgPolicy.max_model_tier) {
-      const maxTierIndex = MODEL_TIERS.indexOf(params.orgPolicy.max_model_tier as typeof MODEL_TIERS[number])
-      if (maxTierIndex >= 0) {
-        permitted = permitted.filter(m => {
-          const meta = getModelMetadata(m)
-          return meta ? MODEL_TIERS.indexOf(meta.tier) <= maxTierIndex : false
-        })
-      }
+      permitted = permitted.filter(m => {
+        const meta = modelCatalogService.getDescriptor(m)
+        if (!meta?.tier) return false
+        const tierOrder = ['low', 'standard', 'high', 'premium']
+        const maxIndex = tierOrder.indexOf(params.orgPolicy.max_model_tier as typeof tierOrder[number])
+        const modelIndex = tierOrder.indexOf(meta.tier as typeof tierOrder[number])
+        return maxIndex >= 0 && modelIndex >= 0 && modelIndex <= maxIndex
+      })
     }
 
     // Handle unsupported configured allowed_models
     const hasUnsupportedConfigured = evaluation.unsupportedConfigured.length > 0
 
+    // Check if requested model is still permitted after max_model_tier filtering
+    const requestedStillPermitted = permitted.includes(evaluation.requestedModel)
+
     let approvedModel = evaluation.requestedModel
     let reasoning = 'Requested model is allowed by policy'
     let overridden = false
 
-    if (!evaluation.isRequestedAllowed) {
+    if (!evaluation.isRequestedAllowed || !requestedStillPermitted) {
       overridden = true
       if (permitted.length > 0) {
-        approvedModel = getBestPermittedModel(
+        approvedModel = this.selectBestPermittedModel(
           permitted,
           evaluation.requestedModel,
           params.preservePriority ?? 'accuracy',
           params.orgPolicy.max_model_tier
         )
-        reasoning = `Model ${evaluation.requestedModel} not allowed by policy (allowed: [${permitted.join(', ')}]). Using best permitted: ${approvedModel}.`
+        if (!evaluation.isRequestedAllowed) {
+          reasoning = `Model ${evaluation.requestedModel} not allowed by policy (allowed: [${permitted.join(', ')}]). Using best permitted: ${approvedModel}.`
+        } else {
+          reasoning = `Model ${evaluation.requestedModel} exceeds max_model_tier ${params.orgPolicy.max_model_tier} (allowed: [${permitted.join(', ')}]). Using best permitted: ${approvedModel}.`
+        }
       } else if (hasUnsupportedConfigured) {
-        // Policy configured but contains unsupported models; return empty (unsupported-policy behavior)
         approvedModel = ''
         reasoning = `Model ${evaluation.requestedModel} not allowed. Policy configured unsupported models (${evaluation.unsupportedConfigured.join(', ')}). No supported permitted model available.`
       } else {
-        // No permitted models available at all (max_model_tier eliminated all, or no restriction configured but no valid model)
         approvedModel = ''
         reasoning = `Model ${evaluation.requestedModel} not allowed and no permitted models available. No supported fallback.`
       }
     }
 
     const complexity = params.contextTokens > 8000 ? 'high' : (params.contextTokens > 2000 ? 'moderate' : 'low')
+    const modelDescriptor = modelCatalogService.getDescriptor(approvedModel)
+    const costDescriptor = modelDescriptor?.cost ?? { input: 0, output: 0 }
+    const estimatedCostUsd = modelDescriptor ? 
+      (params.contextTokens / 1_000_000) * costDescriptor.input + (params.outputTokens / 1_000_000) * costDescriptor.output
+      : 0
 
     return {
       approvedModel,
@@ -124,18 +161,76 @@ class Router {
       confidence: 1.0,
       reasoning,
       overridden,
-      estimatedCostUsd: this.estimateCost(params.contextTokens, params.outputTokens, approvedModel),
+      estimatedCostUsd,
     }
   }
 
+  private selectBestPermittedModel(
+    permitted: string[],
+    requestedModel: string,
+    preservePriority: 'cost' | 'speed' | 'accuracy' | 'accuracy' | 'speed' | 'cost',
+    maxModelTier?: string
+  ): string {
+    // Filter to permitted models supported by catalog
+    const permittedFromCatalog = permitted.filter(m => modelCatalogService.isSupported(m))
+    
+    if (permittedFromCatalog.length === 0) return ''
+
+    const descriptorRequested = modelCatalogService.getDescriptor(requestedModel)
+    const requestedTier = descriptorRequested?.tier
+    const requestedProvider = descriptorRequested?.owner
+
+    // Sort permitted models by catalog descriptor metadata
+    const sorted = permittedFromCatalog.slice().sort((a, b) => {
+      const metaA = modelCatalogService.getDescriptor(a)
+      const metaB = modelCatalogService.getDescriptor(b)
+      
+      if (!metaA || !metaB) return 0
+      
+      const tierA = metaA.tier ?? 'standard'
+      const tierB = metaB.tier ?? 'standard'
+      const tierOrder = ['low', 'standard', 'high', 'premium']
+      const tierIndexA = tierOrder.indexOf(tierA)
+      const tierIndexB = tierOrder.indexOf(tierB)
+
+      if (preservePriority === 'cost' || preservePriority === 'speed') {
+        if (tierIndexA !== tierIndexB) return tierIndexA - tierIndexB
+        // Prefer same owner as requested
+        const ownerA = metaA.owner ?? ''
+        const ownerB = metaB.owner ?? ''
+        if (requestedProvider && ownerA === requestedProvider && ownerB !== requestedProvider) return -1
+        if (requestedProvider && ownerB === requestedProvider && ownerA !== requestedProvider) return 1
+        return 0
+      } else {
+        if (requestedTier) {
+          const requestedIndex = tierOrder.indexOf(requestedTier)
+          const diffA = Math.abs(tierIndexA - requestedIndex)
+          const diffB = Math.abs(tierIndexB - requestedIndex)
+          if (diffA !== diffB) return diffA - diffB
+          // Prefer same owner
+          const ownerA = metaA.owner ?? ''
+          const ownerB = metaB.owner ?? ''
+          if (requestedProvider && ownerA === requestedProvider && ownerB !== requestedProvider) return -1
+          if (requestedProvider && ownerB === requestedProvider && ownerA !== requestedProvider) return 1
+          return 0
+        }
+        return tierIndexB - tierIndexA
+      }
+    })
+
+    return sorted[0] ?? permittedFromCatalog[0] ?? ''
+  }
+
   estimateCost(inputTokens: number, outputTokens: number, model: string): number {
-    const meta = getModelMetadata(model)
-    if (!meta || !meta.cost) return 0
-    return (inputTokens / 1_000_000) * meta.cost.input + (outputTokens / 1_000_000) * meta.cost.output
+    const descriptor = modelCatalogService.getDescriptor(model)
+    if (!descriptor || !descriptor.cost) return 0
+    return (inputTokens / 1_000_000) * descriptor.cost.input + (outputTokens / 1_000_000) * descriptor.cost.output
   }
 
   calculateSavings(inputTokens: number, outputTokens: number, fromModel: string, toModel: string): number {
     if (fromModel === toModel) return 0
+    const fromDescriptor = modelCatalogService.getDescriptor(fromModel)
+    const toDescriptor = modelCatalogService.getDescriptor(toModel)
     const fromCost = this.estimateCost(inputTokens, outputTokens, fromModel)
     const toCost = this.estimateCost(inputTokens, outputTokens, toModel)
     return Math.max(0, fromCost - toCost)

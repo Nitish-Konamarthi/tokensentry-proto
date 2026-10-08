@@ -4,12 +4,6 @@ import { fetchWithTimeoutAndRetry } from '../../lib/provider-fetch.js'
 
 const BASE_URL = 'https://api.anthropic.com/v1'
 
-export const ANTHROPIC_COSTS: Record<string, { input: number; output: number }> = {
-  'claude-haiku-4-5':     { input: 0.80, output: 4.00 },
-  'claude-sonnet-4-6':    { input: 3.00, output: 15.00 },
-  'claude-opus-4-6':      { input: 15.00, output: 75.00 },
-}
-
 export async function callAnthropic(params: {
   apiKey: string
   model: string
@@ -36,12 +30,6 @@ export async function callAnthropic(params: {
       stream: params.stream ?? false,
     }),
   }, 'anthropic')
-}
-
-export function calculateAnthropicCost(model: string, inputTokens: number, outputTokens: number): number {
-  const costs = ANTHROPIC_COSTS[model]
-  if (!costs) return 0
-  return (inputTokens / 1_000_000) * costs.input + (outputTokens / 1_000_000) * costs.output
 }
 
 export function parseAnthropicResponse(response: any): {

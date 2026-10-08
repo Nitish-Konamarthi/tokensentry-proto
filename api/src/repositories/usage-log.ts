@@ -6,6 +6,9 @@ export class UsageLogRepository {
   async insert(data: {
     orgId: string; teamId: string; userId?: string; apiKeyId?: string
     callId: string; model: string; provider: string
+    modelOwner?: string; canonicalModel?: string; upstream?: string; upstreamModel?: string
+    routePriority?: number; attemptNumber?: number; fallbackUpstream?: string
+    success?: boolean; normalizedErrorCategory?: string
     inputTokens: number; outputTokens: number; costMicros: number
     durationMs: number; cacheHit: boolean; streamed: boolean
     statusCode: number; error?: string

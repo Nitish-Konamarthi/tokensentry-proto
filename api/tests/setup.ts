@@ -5,3 +5,8 @@ process.env['VALKEY_URL'] = 'redis://localhost:6379/1'
 process.env['AUTH0_DOMAIN'] = 'test.tokensentry.ai'
 process.env['AUTH0_AUDIENCE'] = 'https://api.tokensentry.ai'
 process.env['LOG_LEVEL'] = 'fatal'
+process.env['ENCRYPTION_KEY'] = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+
+// Initialize catalog service for tests
+import { initializeCatalog } from '../src/catalog-bootstrap.js'
+await initializeCatalog()

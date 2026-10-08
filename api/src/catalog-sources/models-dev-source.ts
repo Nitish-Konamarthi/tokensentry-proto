@@ -25,7 +25,7 @@ export class ModelsDevCatalogSource implements CatalogSource {
       for (const item of models) {
         descriptors.push({
           id: item.id || item.model_id || item.name,
-          provider: item.provider || item.provider_id || 'models-dev',
+          owner: item.provider || item.provider_id || 'models-dev',
           family: item.family || item.model_family || '',
           tier: item.tier || item.capability_tier || 'standard',
           capabilityScore: item.capability_score || item.score || 0,

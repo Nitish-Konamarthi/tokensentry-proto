@@ -11,6 +11,15 @@ export interface AnalyticsDispatchCall {
   requestMetadata: AnalyticsRequestMetadata
   model: string
   provider: string
+  modelOwner?: string
+  canonicalModel?: string
+  upstream?: string
+  upstreamModel?: string
+  routePriority?: number
+  attemptNumber?: number
+  fallbackUpstream?: string
+  success?: boolean
+  normalizedErrorCategory?: string
   durationMs: number
   inputTokens: number
   outputTokens: number
@@ -27,12 +36,9 @@ export interface AnalyticsDispatchRouting {
   orgId: string
   callId: string
   requestedModel: string
+  canonicalModel?: string
   approvedModel: string
-  overridden?: boolean
-  estimatedCostUsd?: number
-  complexity?: string
-  confidence?: number
-  reasoning?: string
+  modelOwner?: string
   upstream?: string
   upstreamModel?: string
   routePriority?: number
@@ -40,6 +46,11 @@ export interface AnalyticsDispatchRouting {
   fallbackUpstream?: string
   success?: boolean
   normalizedErrorCategory?: string
+  overridden?: boolean
+  estimatedCostUsd?: number
+  complexity?: string
+  confidence?: number
+  reasoning?: string
 }
 
 export interface AnalyticsDispatcher {

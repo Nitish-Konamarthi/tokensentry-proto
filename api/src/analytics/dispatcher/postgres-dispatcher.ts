@@ -18,6 +18,15 @@ export class PostgresAnalyticsDispatcher implements AnalyticsDispatcher {
         apiKeyId: params.requestMetadata.apiKeyId ?? '',
         model: params.model,
         provider: params.provider,
+        modelOwner: params.modelOwner,
+        canonicalModel: params.canonicalModel,
+        upstream: params.upstream,
+        upstreamModel: params.upstreamModel,
+        routePriority: params.routePriority,
+        attemptNumber: params.attemptNumber,
+        fallbackUpstream: params.fallbackUpstream,
+        success: params.success,
+        normalizedErrorCategory: params.normalizedErrorCategory,
         inputTokens: Math.max(0, params.inputTokens ?? 0),
         outputTokens: Math.max(0, params.outputTokens ?? 0),
         costMicros: Math.max(0, params.costMicros ?? 0),
@@ -29,7 +38,7 @@ export class PostgresAnalyticsDispatcher implements AnalyticsDispatcher {
       })
 
       await this.updateRealtimeCounter(params.requestMetadata.orgId, params.costMicros)
-      logger.debug({ callId, orgId: params.requestMetadata.orgId, model: params.model, provider: params.provider, tokens: params.inputTokens + params.outputTokens, cost: params.costMicros, cacheHit: params.cacheHit }, 'Call recorded')
+      logger.debug({ callId, orgId: params.requestMetadata.orgId, model: params.model, provider: params.provider, modelOwner: params.modelOwner, canonicalModel: params.canonicalModel, upstream: params.upstream, tokens: params.inputTokens + params.outputTokens, cost: params.costMicros, cacheHit: params.cacheHit }, 'Call recorded')
     } catch (err) {
       logger.error({ err, callId }, 'Failed to record call')
     }
@@ -43,8 +52,16 @@ export class PostgresAnalyticsDispatcher implements AnalyticsDispatcher {
         orgId: params.orgId,
         callId: params.callId,
         requestedModel: params.requestedModel,
-        recommendedModel: params.approvedModel,
+        canonicalModel: params.canonicalModel,
         approvedModel: params.approvedModel,
+        modelOwner: params.modelOwner,
+        upstream: params.upstream,
+        upstreamModel: params.upstreamModel,
+        routePriority: params.routePriority,
+        attemptNumber: params.attemptNumber,
+        fallbackUpstream: params.fallbackUpstream,
+        success: params.success,
+        normalizedErrorCategory: params.normalizedErrorCategory,
         complexity: params.complexity,
         confidence: params.confidence,
         reasoning: params.reasoning,
