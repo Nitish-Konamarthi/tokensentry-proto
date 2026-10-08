@@ -39,6 +39,8 @@ export interface RouteAttempt {
   success: boolean
   errorCategory?: NormalizedErrorCategory
   errorMessage?: string
+  skipped?: boolean
+  skippedReason?: string
 }
 
 export interface RouteExecutionResult {
@@ -163,6 +165,8 @@ export class ProviderRouterService {
             success: false,
             errorCategory: 'UNAVAILABLE',
             errorMessage: 'Upstream unhealthy',
+            skipped: true,
+            skippedReason: 'upstream_unhealthy',
           })
           lastError = new UpstreamUnavailableError(route.upstreamId)
           continue
@@ -179,6 +183,8 @@ export class ProviderRouterService {
             success: false,
             errorCategory: 'CONFIGURATION',
             errorMessage: 'No credential configured',
+            skipped: true,
+            skippedReason: 'missing_credentials',
           })
           lastError = new Error(`No credential configured for upstream '${route.upstreamId}'`)
           continue
@@ -203,7 +209,11 @@ export class ProviderRouterService {
           success: true,
         })
 
-        const fallbackUsed = attempts.length > 1
+        // fallbackUsed = true only if a non-primary route succeeded after a primary route was EXECUTED and failed
+        // (not just skipped due to unhealthy/missing credentials)
+        const executedAttempts = attempts.filter(a => !a.skipped)
+        const fallbackUsed = executedAttempts.length > 1
+        // fallbackUpstream is the upstream that actually served the request when fallback occurred
         const fallbackUpstream = fallbackUsed ? route.upstreamId : undefined
 
         return {

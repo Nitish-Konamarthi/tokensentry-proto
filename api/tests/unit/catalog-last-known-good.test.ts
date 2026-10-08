@@ -69,7 +69,7 @@ describe('Last-Known-Good Catalog Semantics', () => {
     expect(service.isSupported('provider-b/model-b')).toBe(true)
 
     const snapshotA = service.getSourceSnapshot('source-a')
-    expect(snapshotA?.status).toBe('healthy')
+    expect(snapshotA?.status).toBe('unhealthy')
     expect(snapshotA?.models).toHaveLength(1)
   })
 
@@ -130,7 +130,7 @@ describe('Last-Known-Good Catalog Semantics', () => {
     expect(service.isSupported('provider-b/model-b2')).toBe(true)
 
     const snapshotA = service.getSourceSnapshot('source-a')
-    expect(snapshotA?.status).toBe('healthy')
+    expect(snapshotA?.status).toBe('unhealthy')
     expect(snapshotA?.models).toHaveLength(1)
 
     const snapshotB = service.getSourceSnapshot('source-b')
@@ -204,6 +204,46 @@ describe('Last-Known-Good Catalog Semantics', () => {
     await service.refresh()
 
     expect(service.getCatalogHealth()).toBe('degraded')
+    expect(service.isSupported('provider-a/model-a')).toBe(true)
+  })
+
+  it('recovers to healthy after successful refresh following failure', async () => {
+    const modelA: ModelDescriptor = {
+      id: 'provider-a/model-a',
+      owner: 'provider-a',
+      tier: 'standard',
+      cost: { input: 1.0, output: 2.0 },
+    }
+
+    let sourceAFail = false
+    const sourceA: CatalogSource = {
+      id: 'source-a',
+      discover: async () => {
+        if (sourceAFail) return { ok: false, error: 'Source A unavailable' }
+        return { ok: true, models: [modelA] }
+      },
+      refresh: async () => {},
+    }
+    const sourceB = createSource('source-b', [
+      { id: 'provider-b/model-b', owner: 'provider-b', tier: 'standard', cost: { input: 1.0, output: 2.0 } }
+    ])
+
+    service = new ModelCatalogService({
+      sources: [sourceA, sourceB],
+      mergeStrategy: 'precedence',
+      sourcePrecedence: ['source-a', 'source-b'],
+    })
+
+    await service.refresh()
+    expect(service.getSourceSnapshot('source-a')?.status).toBe('healthy')
+
+    sourceAFail = true
+    await service.refresh()
+    expect(service.getSourceSnapshot('source-a')?.status).toBe('unhealthy')
+
+    sourceAFail = false
+    await service.refresh()
+    expect(service.getSourceSnapshot('source-a')?.status).toBe('healthy')
     expect(service.isSupported('provider-a/model-a')).toBe(true)
   })
 })

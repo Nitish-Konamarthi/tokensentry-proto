@@ -44,8 +44,8 @@ describe('Dynamic Route Resolution', () => {
 
   it('resolves a dynamically discovered model to OpenRouter without MODEL_ROUTES entry', async () => {
     const dynamicModel: ModelDescriptor = {
-      id: 'new-provider/new-model-xyz',
-      owner: 'new-provider',
+      id: 'anthropic/new-model-xyz',
+      owner: 'anthropic',
       family: 'new-family',
       tier: 'standard',
       capabilityScore: 2,
@@ -64,10 +64,10 @@ describe('Dynamic Route Resolution', () => {
     setCatalogService(catalogService)
     await catalogService.refresh()
 
-    const result = router.resolveUpstream('new-provider/new-model-xyz')
+    const result = router.resolveUpstream('anthropic/new-model-xyz')
 
     expect(result.upstreamId).toBe('openrouter')
-    expect(result.upstreamModelId).toBe('new-provider/new-model-xyz')
+    expect(result.upstreamModelId).toBe('anthropic/new-model-xyz')
   })
 
   it('rejects unknown models that are not in catalog', async () => {
@@ -136,8 +136,8 @@ describe('Dynamic Route Resolution', () => {
     const before = MODEL_ROUTES.length
 
     const dynamicModel: ModelDescriptor = {
-      id: 'another-provider/another-model',
-      owner: 'another-provider',
+      id: 'openai/another-model',
+      owner: 'openai',
       tier: 'standard',
       cost: { input: 1.0, output: 2.0 },
     }
@@ -151,7 +151,7 @@ describe('Dynamic Route Resolution', () => {
 
     setCatalogService(catalogService)
     await catalogService.refresh()
-    router.resolveUpstream('another-provider/another-model')
+    router.resolveUpstream('openai/another-model')
 
     expect(MODEL_ROUTES.length).toBe(before)
   })

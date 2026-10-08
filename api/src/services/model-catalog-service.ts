@@ -91,12 +91,9 @@ export class ModelCatalogService {
         } else {
           const prev = this.sourceSnapshots.get(source.id)
           if (prev) {
-            // Source failed - retain models (last-known-good)
-            // Only mark snapshot unhealthy if it has no models (was empty success)
-            const hasModels = prev.models.length > 0
             this.sourceSnapshots.set(source.id, {
               ...prev,
-              status: hasModels ? 'healthy' : 'unhealthy',
+              status: 'unhealthy',
               error: result.error,
             })
             newSourceStatus.set(source.id, {
@@ -122,12 +119,9 @@ export class ModelCatalogService {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error'
         const prev = this.sourceSnapshots.get(source.id)
         if (prev) {
-          // Source failed - retain models (last-known-good)
-          // Only mark snapshot unhealthy if it has no models (was empty success)
-          const hasModels = prev.models.length > 0
           this.sourceSnapshots.set(source.id, {
             ...prev,
-            status: hasModels ? 'healthy' : 'unhealthy',
+            status: 'unhealthy',
             error: errorMessage,
           })
         } else {

@@ -93,16 +93,12 @@ export class OpenRouterUpstreamAdapter implements UpstreamAdapter {
   }
 
   supports(model: string): boolean {
-    // OpenRouter supports a broad set of models including those with slashes.
-    // For V1, we treat any non-empty model identifier as potentially supported,
-    // but require that it includes a provider prefix (e.g., anthropic/claude-sonnet-4-6)
-    // or is a known OpenRouter identifier.
+    // OpenRouter supports models from known providers.
+    // For V1, we only support models with known provider prefixes.
+    // The catalog is the authoritative source for model existence.
     if (!model || typeof model !== 'string') return false
 
-    // Support model IDs with slashes (common OpenRouter format)
-    if (model.includes('/')) return true
-
-    // Support known OpenRouter-style model names
+    // Only support known provider prefixes
     const knownPrefixes = ['anthropic/', 'openai/', 'google/', 'groq/', 'mistral/', 'meta/', 'qwen/']
     for (const prefix of knownPrefixes) {
       if (model.startsWith(prefix)) return true

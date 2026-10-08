@@ -26,7 +26,6 @@ vi.mock('../../src/services/provider-router.js', async (importOriginal) => {
   const actual = await importOriginal()
   return {
     ...actual,
-    UpstreamUnavailableError: actual.UpstreamUnavailableError,
     providerRouter: {
       resolveUpstream: vi.fn(() => ({ upstreamId: 'anthropic-direct', upstreamModelId: 'claude-sonnet-4-6' })),
       route: vi.fn(),

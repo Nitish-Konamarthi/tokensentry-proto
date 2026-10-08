@@ -145,7 +145,7 @@ describe('Fallback Execution with Per-Upstream Credentials', () => {
     expect(openRouterAdapter.chat).toHaveBeenCalledTimes(1)
   })
 
-  it('skips unhealthy upstreams and tries next eligible route', async () => {
+  it('skips unhealthy upstreams and tries next eligible route (not a fallback)', async () => {
     openRouterAdapter.health.mockResolvedValue({
       healthy: true,
       upstreamId: 'openrouter',
@@ -167,10 +167,15 @@ describe('Fallback Execution with Per-Upstream Credentials', () => {
       messages: [{ role: 'user', content: 'Hello' }],
     })
 
-    expect(result.fallbackUsed).toBe(true)
+    // Skipping unhealthy upstream is NOT a fallback - it's normal routing to next available
+    expect(result.fallbackUsed).toBe(false)
     expect(result.finalRoute.upstreamId).toBe('openrouter')
     expect(callAnthropic).not.toHaveBeenCalled()
     expect(openRouterAdapter.chat).toHaveBeenCalledTimes(1)
+    // Verify the attempt was marked as skipped
+    const skippedAttempt = result.attempts.find(a => a.skipped)
+    expect(skippedAttempt).toBeDefined()
+    expect(skippedAttempt?.skippedReason).toBe('upstream_unhealthy')
   })
 
   it('does NOT fallback on 429 rate limit', async () => {

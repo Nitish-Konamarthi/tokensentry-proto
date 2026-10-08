@@ -79,6 +79,39 @@ export class DecisionEngine {
     const inputTokens = estimateTokenCount(normalized.messages)
     const outputTokens = ctx.request.payload.max_tokens ?? 1024
     const canonicalRequested = canonicalizeModelId(ctx.request.payload.model)
+
+    // Fail closed: reject requests with unknown pricing before budget check
+    const descriptor = modelCatalogService.getDescriptor(canonicalRequested)
+    if (!descriptor || !descriptor.cost || isUnknownPricing(descriptor.cost)) {
+      logger.warn({ model: canonicalRequested, orgId: ctx.organization.id }, 'Unknown pricing - rejecting request (fail-closed)')
+      void analyticsService.recordCall({
+        orgId: ctx.organization.id,
+        teamId: ctx.team.id,
+        userId: ctx.user.id,
+        apiKeyId: ctx.apiKey,
+        model: canonicalRequested,
+        provider: 'unknown',
+        inputTokens: 0,
+        outputTokens: 0,
+        costMicros: 0,
+        durationMs: Date.now() - ctx.timestamps.receivedAt,
+        cacheHit: false,
+        streamed: ctx.request.payload.stream ?? false,
+        statusCode: 400,
+        error: 'UNKNOWN_PRICING',
+        callId: ctx.requestId,
+      })
+
+      return {
+        statusCode: 400,
+        body: {
+          error: 'UNKNOWN_PRICING',
+          message: `Model ${canonicalRequested} has unknown pricing. Cannot execute request without cost estimation.`,
+          call_id: ctx.requestId,
+        },
+      }
+    }
+
     const estimatedCostUsd = routerService.estimateCost(inputTokens, outputTokens, canonicalRequested)
     const estimatedCostMicros = Math.ceil(estimatedCostUsd * 1_000_000)
     const contextTokens = inputTokens
@@ -168,6 +201,40 @@ export class DecisionEngine {
 
     const finalModel = budgetCheck.fallback_model ?? routeDecision.approvedModel
     const canonicalFinal = canonicalizeModelId(finalModel)
+
+    // Fail closed: ensure final model also has known pricing
+    const finalDescriptor = modelCatalogService.getDescriptor(canonicalFinal)
+    if (!finalDescriptor || !finalDescriptor.cost || isUnknownPricing(finalDescriptor.cost)) {
+      await releaseReservation()
+      logger.warn({ model: canonicalFinal, orgId: ctx.organization.id }, 'Final model has unknown pricing - rejecting request (fail-closed)')
+      void analyticsService.recordCall({
+        orgId: ctx.organization.id,
+        teamId: ctx.team.id,
+        userId: ctx.user.id,
+        apiKeyId: ctx.apiKey,
+        model: canonicalFinal,
+        provider: 'unknown',
+        inputTokens: 0,
+        outputTokens: 0,
+        costMicros: 0,
+        durationMs: Date.now() - ctx.timestamps.receivedAt,
+        cacheHit: false,
+        streamed: ctx.request.payload.stream ?? false,
+        statusCode: 400,
+        error: 'UNKNOWN_PRICING',
+        callId: ctx.requestId,
+      })
+
+      return {
+        statusCode: 400,
+        body: {
+          error: 'UNKNOWN_PRICING',
+          message: `Model ${canonicalFinal} has unknown pricing. Cannot execute request without cost estimation.`,
+          call_id: ctx.requestId,
+        },
+      }
+    }
+
     if (!finalModel || !modelCatalogService.isSupported(canonicalFinal)) {
       await releaseReservation()
       const canonicalRequested = canonicalizeModelId(ctx.request.payload.model)
@@ -792,7 +859,9 @@ throw err
     const descriptor = modelCatalogService.getDescriptor(canonicalModel)
     if (!descriptor || !descriptor.cost) return 0
     // Cost comes from the catalog descriptor
-    if (isUnknownPricing(descriptor.cost)) return 0 // Unknown pricing = $0 cost for actuals, but budget estimation will handle separately
+    if (isUnknownPricing(descriptor.cost)) {
+      throw new Error(`Cannot calculate cost for model ${canonicalModel}: pricing is unknown`)
+    }
     return (inputTokens / 1_000_000) * descriptor.cost.input + (outputTokens / 1_000_000) * descriptor.cost.output
   }
 }
