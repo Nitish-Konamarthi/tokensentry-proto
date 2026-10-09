@@ -7,9 +7,8 @@ import { logger } from './lib/logger.js'
 export async function initializeCatalog(): Promise<void> {
   const sources: import('./services/model-catalog.js').CatalogSource[] = []
 
-  if (env.MODELS_DEV_API_URL) {
-    sources.push(new ModelsDevCatalogSource())
-  }
+  // Production uses the real Models.dev source (with its default URL)
+  sources.push(new ModelsDevCatalogSource())
 
   // Fixture catalog is ONLY for development/test environments
   // Production must explicitly enable it via env var
@@ -27,7 +26,7 @@ export async function initializeCatalog(): Promise<void> {
   const config: ModelCatalogServiceConfig = {
     sources,
     mergeStrategy: 'precedence',
-    sourcePrecedence: env.MODELS_DEV_API_URL ? ['models-dev', 'fixture'] : ['fixture'],
+    sourcePrecedence: ['models-dev', 'fixture'],
   }
 
   const service = new ModelCatalogService(config)

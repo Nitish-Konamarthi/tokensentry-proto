@@ -190,7 +190,10 @@ export class ModelCatalogService {
     const healthyCount = snapshots.filter(s => s.status === 'healthy').length
     if (healthyCount === snapshots.length) return 'healthy'
     if (healthyCount > 0) return 'degraded'
-    return 'unavailable'
+
+    // All sources unhealthy: distinguish degraded (stale data available) from unavailable
+    const hasUsableData = this.projection.descriptors.size > 0
+    return hasUsableData ? 'degraded' : 'unavailable'
   }
 
   private syncInterval?: ReturnType<typeof setInterval>

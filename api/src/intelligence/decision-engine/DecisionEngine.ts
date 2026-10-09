@@ -112,9 +112,76 @@ export class DecisionEngine {
       }
     }
 
-    const estimatedCostUsd = routerService.estimateCost(inputTokens, outputTokens, canonicalRequested)
-    const estimatedCostMicros = Math.ceil(estimatedCostUsd * 1_000_000)
     const contextTokens = inputTokens
+
+    // Fetch organization's actual model policy (before budget reserve so routing uses real policy)
+    const orgData = await orgRepo.findById(ctx.organization.id)
+    const orgPolicy = (orgData?.modelPolicy as { allowed_models?: string[]; max_model_tier?: string }) ?? {
+      allowed_models: ['claude-haiku-4-5', 'claude-sonnet-4-6'],
+      max_model_tier: 'sonnet',
+    }
+
+    const routeDecision = await routerService.route({
+      requestedModel: ctx.request.payload.model,
+      contextTokens,
+      outputTokens,
+      orgPolicy,
+      preservePriority: 'cost',
+    })
+
+    const approvedModel = routeDecision.approvedModel
+    const canonicalFinal = canonicalizeModelId(approvedModel)
+
+    // Fail closed: ensure final model also has known pricing before budget check
+    const finalDescriptor = modelCatalogService.getDescriptor(canonicalFinal)
+    if (!finalDescriptor || !finalDescriptor.cost || isUnknownPricing(finalDescriptor.cost)) {
+      logger.warn({ model: canonicalFinal, orgId: ctx.organization.id }, 'Final model has unknown pricing - rejecting request (fail-closed)')
+      void analyticsService.recordCall({
+        orgId: ctx.organization.id,
+        teamId: ctx.team.id,
+        userId: ctx.user.id,
+        apiKeyId: ctx.apiKey,
+        model: canonicalFinal,
+        provider: 'unknown',
+        inputTokens: 0,
+        outputTokens: 0,
+        costMicros: 0,
+        durationMs: Date.now() - ctx.timestamps.receivedAt,
+        cacheHit: false,
+        streamed: ctx.request.payload.stream ?? false,
+        statusCode: 400,
+        error: 'UNKNOWN_PRICING',
+        callId: ctx.requestId,
+      })
+
+      return {
+        statusCode: 400,
+        body: {
+          error: 'UNKNOWN_PRICING',
+          message: `Model ${canonicalFinal} has unknown pricing. Cannot execute request without cost estimation.`,
+          call_id: ctx.requestId,
+        },
+      }
+    }
+
+    if (!approvedModel || !modelCatalogService.isSupported(canonicalFinal)) {
+      const canonicalRequested = canonicalizeModelId(ctx.request.payload.model)
+      const requestedModelIsKnown = modelCatalogService.isSupported(canonicalRequested)
+      return {
+        statusCode: requestedModelIsKnown ? 403 : 400,
+        body: {
+          error: requestedModelIsKnown ? 'MODEL_NOT_ALLOWED' : 'UNSUPPORTED_MODEL',
+          message: requestedModelIsKnown
+            ? 'No permitted model is available for this request'
+            : 'Requested model is not supported',
+          call_id: ctx.requestId,
+        },
+      }
+    }
+
+    // Calculate estimate and reserve budget using the FINAL selected model
+    const estimatedCostUsd = routerService.estimateCost(inputTokens, outputTokens, canonicalFinal)
+    const estimatedCostMicros = Math.ceil(estimatedCostUsd * 1_000_000)
 
     const budgetCheck = await budgetService.checkAndDeduct({
       orgId: ctx.organization.id,
@@ -171,6 +238,8 @@ export class DecisionEngine {
       }
     }
 
+    const finalModel = budgetCheck.fallback_model ?? approvedModel
+
     const releaseReservation = () => budgetService.releaseReservation({
       orgId: ctx.organization.id,
       estimatedCostMicros,
@@ -181,73 +250,6 @@ export class DecisionEngine {
       } catch (err) {
         await releaseReservation()
         throw err
-      }
-    }
-
-    // Fetch organization's actual model policy
-    const orgData = await releaseReservationOnError(() => orgRepo.findById(ctx.organization.id))
-    const orgPolicy = (orgData?.modelPolicy as { allowed_models?: string[]; max_model_tier?: string }) ?? {
-      allowed_models: ['claude-haiku-4-5', 'claude-sonnet-4-6'],
-      max_model_tier: 'sonnet',
-    }
-
-    const routeDecision = await releaseReservationOnError(() => routerService.route({
-      requestedModel: ctx.request.payload.model,
-      contextTokens,
-      outputTokens,
-      orgPolicy,
-      preservePriority: 'cost',
-    }))
-
-    const finalModel = budgetCheck.fallback_model ?? routeDecision.approvedModel
-    const canonicalFinal = canonicalizeModelId(finalModel)
-
-    // Fail closed: ensure final model also has known pricing
-    const finalDescriptor = modelCatalogService.getDescriptor(canonicalFinal)
-    if (!finalDescriptor || !finalDescriptor.cost || isUnknownPricing(finalDescriptor.cost)) {
-      await releaseReservation()
-      logger.warn({ model: canonicalFinal, orgId: ctx.organization.id }, 'Final model has unknown pricing - rejecting request (fail-closed)')
-      void analyticsService.recordCall({
-        orgId: ctx.organization.id,
-        teamId: ctx.team.id,
-        userId: ctx.user.id,
-        apiKeyId: ctx.apiKey,
-        model: canonicalFinal,
-        provider: 'unknown',
-        inputTokens: 0,
-        outputTokens: 0,
-        costMicros: 0,
-        durationMs: Date.now() - ctx.timestamps.receivedAt,
-        cacheHit: false,
-        streamed: ctx.request.payload.stream ?? false,
-        statusCode: 400,
-        error: 'UNKNOWN_PRICING',
-        callId: ctx.requestId,
-      })
-
-      return {
-        statusCode: 400,
-        body: {
-          error: 'UNKNOWN_PRICING',
-          message: `Model ${canonicalFinal} has unknown pricing. Cannot execute request without cost estimation.`,
-          call_id: ctx.requestId,
-        },
-      }
-    }
-
-    if (!finalModel || !modelCatalogService.isSupported(canonicalFinal)) {
-      await releaseReservation()
-      const canonicalRequested = canonicalizeModelId(ctx.request.payload.model)
-      const requestedModelIsKnown = modelCatalogService.isSupported(canonicalRequested)
-      return {
-        statusCode: requestedModelIsKnown ? 403 : 400,
-        body: {
-          error: requestedModelIsKnown ? 'MODEL_NOT_ALLOWED' : 'UNSUPPORTED_MODEL',
-          message: requestedModelIsKnown
-            ? 'No permitted model is available for this request'
-            : 'Requested model is not supported',
-          call_id: ctx.requestId,
-        },
       }
     }
 
@@ -343,18 +345,7 @@ export class DecisionEngine {
         temperature: ctx.request.payload.temperature,
         stream: ctx.request.payload.stream,
       }))
-    } catch (err: any) {
-      if (err.message?.includes('No credential configured')) {
-        await releaseReservation()
-        return {
-          statusCode: 500,
-          body: { error: 'CONFIG_ERROR', message: 'Required upstream is not configured', call_id: ctx.requestId },
-        }
-      }
-throw err
-    }
 
-    try {
       const providerResponse = routeResult.response
     const finalRoute = routeResult.finalRoute
     const attempts = routeResult.attempts
@@ -636,6 +627,13 @@ throw err
         body: responsePayload,
       }
     } catch (providerErr) {
+      if ((providerErr as any)?.message?.includes('No credential configured')) {
+        await releaseReservation()
+        return {
+          statusCode: 500,
+          body: { error: 'CONFIG_ERROR', message: 'Required upstream is not configured', call_id: ctx.requestId },
+        }
+      }
       if (ctx.agent?.sessionId) {
         void agentGuardService.incrementErrors(ctx.agent.sessionId)
       }
@@ -769,8 +767,6 @@ throw err
           },
         }
       }
-
-      await releaseReservation()
 
       throw providerErr
     }
