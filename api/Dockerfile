@@ -13,7 +13,7 @@ FROM node:${NODE_VERSION}-alpine AS deps
 WORKDIR /app
 COPY package*.json ./
 # Install all deps (including dev — needed for tsx in dev stage)
-RUN npm ci --frozen-lockfile
+RUN npm ci
 
 # ── Stage 2: builder ──────────────────────────────────────
 FROM node:${NODE_VERSION}-alpine AS builder
