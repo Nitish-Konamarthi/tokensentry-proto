@@ -44,6 +44,7 @@ export async function initializeCatalog(): Promise<void> {
   }
 
   setCatalogService(service)
+  service.startPeriodicRefresh()
 
   const health = service.getCatalogHealth()
   logger.info({

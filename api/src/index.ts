@@ -5,6 +5,7 @@ import { closePg } from './clients/postgres.js'
 import { closeValkey } from './clients/valkey.js'
 import { env } from './config/env.js'
 import { initializeCatalog } from './catalog-bootstrap.js'
+import { getCatalogService } from './services/model-catalog-service.js'
 
 async function main(): Promise<void> {
   const app = await buildApp()
@@ -12,6 +13,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'Shutting down gracefully...')
     try {
+      try { getCatalogService().stopPeriodicRefresh() } catch { /* not initialized */ }
       await app.close()
       await Promise.all([closePg(), closeValkey()])
       logger.info('Shutdown complete')
