@@ -172,7 +172,7 @@ export class ProviderRouterService {
           continue
         }
 
-        const apiKey = await getProviderApiKey(route.upstreamId as UpstreamId, params.orgId)
+        const apiKey = await getProviderApiKey(route.upstreamId as UpstreamId)
         if (!apiKey) {
           logger.warn({ upstream: route.upstreamId, model: params.model }, 'No credential configured for upstream')
           attempts.push({
@@ -200,6 +200,8 @@ export class ProviderRouterService {
           temperature: params.temperature,
           stream: params.stream,
         })
+
+        await this.markUpstreamHealthy(route.upstreamId as UpstreamId)
 
         attempts.push({
           attemptNumber,
@@ -260,7 +262,7 @@ export class ProviderRouterService {
 
   private isRetryableError(err: any): boolean {
     if (err instanceof UpstreamUnavailableError) return true
-    if (err.name === 'ProviderRequestError' && err.retryable) return true
+    if (err.name === 'ProviderRequestError') return err.retryable
     if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'ENOTFOUND') return true
     if (err.status >= 500 && err.status < 600) return true
     if (err.status === 401 || err.status === 403 || err.status === 400 || err.status === 402 || err.status === 429) return false
@@ -322,11 +324,12 @@ export class ProviderRouterService {
 
   async checkUpstreamHealth(upstream: UpstreamId): Promise<UpstreamHealthState> {
     if (upstream === 'openrouter') {
-      const health = await openRouterAdapter.health()
+      // Do not perform an extra network request to the provider on every user
+      // request. Provider execution itself is the health check.
       return {
         upstream,
-        healthy: health.healthy,
-        lastCheckedAt: health.lastCheckedAt,
+        healthy: Boolean(await getProviderApiKey(upstream)),
+        lastCheckedAt: Date.now(),
       }
     }
     const healthy = await this.getUpstreamHealth(upstream)
@@ -349,8 +352,16 @@ export class ProviderRouterService {
 
   async markUpstreamError(upstream: UpstreamId): Promise<void> {
     const key = ValkeyKeys.providerHealth(upstream)
-    await valkey.setex(key, 300, 'unhealthy')
+    await valkey.setex(key, 20, 'unhealthy')
     logger.error({ upstream }, 'Upstream marked unhealthy')
+  }
+
+  async markUpstreamHealthy(upstream: UpstreamId): Promise<void> {
+    try {
+      await valkey.del(ValkeyKeys.providerHealth(upstream))
+    } catch (err) {
+      logger.warn({ err, upstream }, 'Unable to clear upstream circuit state')
+    }
   }
 }
 

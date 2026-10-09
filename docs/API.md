@@ -41,6 +41,8 @@ curl http://localhost:3000/v1/proxy \
 
 Do not expose provider API keys to clients.
 
+Provider credentials are configured by the operator in the API server environment. TokenSentry does not accept or store provider credentials through the dashboard/API. The V1 model catalog is checked into the repository; unknown model identifiers are rejected.
+
 ---
 
 # Proxy Request
@@ -97,6 +99,7 @@ Usage / Cost
 ```
 
 A request that fails a governance check is rejected before provider execution.
+If the shared budget store is unavailable, proxy requests fail closed with HTTP 503 rather than bypassing budget enforcement.
 
 ---
 
@@ -181,6 +184,10 @@ curl -N http://localhost:3000/v1/proxy \
 ```
 
 Because streaming responses begin before the complete provider operation finishes, provider failures occurring after streaming starts cannot change an HTTP status already sent to the client.
+
+## Team invitations
+
+`POST /v1/invitations` currently returns `501 INVITATIONS_NOT_CONFIGURED`. V1 does not yet integrate with an identity-provider invitation API; it will not create a placeholder member record.
 
 ---
 

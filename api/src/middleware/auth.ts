@@ -27,10 +27,17 @@ export async function requireApiKey(
     request.authContext = ctx
   } catch (err) {
     logger.warn({ ip: extractClientIp(request), path: request.url }, 'Auth failed')
-    const message = (err as Error).message === 'INVALID_API_KEY'
+    const invalidKey = (err as Error).message === 'INVALID_API_KEY'
+    const message = invalidKey
       ? 'Invalid or revoked API key'
       : 'Authentication service unavailable'
-    return reply.code(401).send({ error: 'UNAUTHORIZED', message })
+    return reply.code(invalidKey ? 401 : 503).send({ error: invalidKey ? 'UNAUTHORIZED' : 'AUTH_UNAVAILABLE', message })
+  }
+}
+
+export async function requireProxyScope(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (!request.authContext?.scopes?.includes('proxy')) {
+    return reply.code(403).send({ error: 'FORBIDDEN', message: 'API key lacks the proxy scope' })
   }
 }
 

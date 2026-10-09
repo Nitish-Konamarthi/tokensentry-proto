@@ -23,9 +23,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: false,
     trustProxy: trustedProxies.length > 0 ? trustedProxies : false,
-    requestIdHeader: 'x-request-id',
-    requestIdLogLabel: 'requestId',
-    genReqId: () => crypto.randomUUID(),
+    genReqId: () => randomUUID(),
     bodyLimit: 10 * 1024 * 1024,
   })
 

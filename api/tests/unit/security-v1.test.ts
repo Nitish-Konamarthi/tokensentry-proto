@@ -10,10 +10,11 @@ vi.mock('../../src/clients/valkey.js', () => ({
   ValkeyKeys: {
     budgetMonthly: (org: string, period: string) => `budget:monthly:${org}:${period}`,
     budgetDaily: (org: string, day: string) => `budget:daily:${org}:${day}`,
+    budgetReservation: (org: string, id: string) => `budget:reservation:${org}:${id}`,
     rateLimit: (key: string, window: number) => `ratelimit:${key}:${window}`,
-    agentSession: (session: string) => `agent:session:${session}`,
-    agentStats: (session: string) => `agent:stats:${session}`,
-    agentBlocked: (session: string) => `agent:blocked:${session}`,
+    agentSession: (org: string, session: string) => `agent:session:${org}:${session}`,
+    agentStats: (org: string, session: string) => `agent:stats:${org}:${session}`,
+    agentBlocked: (org: string, session: string) => `agent:blocked:${org}:${session}`,
     providerHealth: (provider: string) => `provider:health:${provider}`,
   },
   checkValkeyHealth: vi.fn().mockResolvedValue(true),
@@ -45,7 +46,7 @@ describe('V1 security and failure contracts', () => {
     vi.mocked(valkey.eval).mockRejectedValueOnce(new Error('Valkey timeout'))
 
     const result = await new BudgetService().checkAndDeduct({
-      orgId: 'org-1', estimatedCostMicros: 100_000,
+      orgId: 'org-1', reservationId: 'call-1', estimatedCostMicros: 100_000,
     })
 
     expect(result).toMatchObject({ approved: false, reason: 'budget_check_unavailable' })
@@ -66,6 +67,30 @@ describe('V1 security and failure contracts', () => {
     } as any
 
     expect(extractClientIp(request)).toBe('8.8.8.8')
+  })
+
+  it('ignores malformed forwarded addresses even when the immediate proxy is trusted', () => {
+    const request = {
+      socket: { remoteAddress: '127.0.0.1' },
+      headers: { 'x-forwarded-for': '999.1.1.1, not-an-ip' },
+    } as any
+
+    expect(extractClientIp(request)).toBe('127.0.0.1')
+  })
+
+  it('recognizes a configured proxy when Node reports an IPv4-mapped IPv6 address', () => {
+    const original = process.env['TRUSTED_PROXY_CIDRS']
+    process.env['TRUSTED_PROXY_CIDRS'] = '172.20.0.2/32'
+    try {
+      const request = {
+        socket: { remoteAddress: '::ffff:172.20.0.2' },
+        headers: { 'x-forwarded-for': '198.51.100.7' },
+      } as any
+      expect(extractClientIp(request)).toBe('198.51.100.7')
+    } finally {
+      if (original === undefined) delete process.env['TRUSTED_PROXY_CIDRS']
+      else process.env['TRUSTED_PROXY_CIDRS'] = original
+    }
   })
 
   it('rejects an unhealthy upstream before invoking its adapter', async () => {
@@ -94,8 +119,8 @@ describe('V1 security and failure contracts', () => {
       .mockResolvedValueOnce([1, 'released', '0'])
 
     const budget = new BudgetService()
-    await budget.checkAndDeduct({ orgId: 'org-1', estimatedCostMicros: 100_000 })
-    await budget.releaseReservation({ orgId: 'org-1', estimatedCostMicros: 100_000 })
+    await budget.checkAndDeduct({ orgId: 'org-1', reservationId: 'call-2', estimatedCostMicros: 100_000 })
+    await budget.releaseReservation({ orgId: 'org-1', reservationId: 'call-2' })
 
     expect(valkey.eval).toHaveBeenCalledTimes(2)
   })

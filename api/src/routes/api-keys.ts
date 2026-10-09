@@ -4,9 +4,16 @@ import { apiKeyRepo } from '../repositories/api-key.js'
 import { auditLogRepo } from '../repositories/audit-log.js'
 import { generateApiKey } from '../lib/crypto.js'
 import { extractClientIp } from '../lib/ip.js'
+import { requireAdmin } from '../middleware/auth-admin.js'
+import { z } from 'zod'
+
+const createKeySchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  expires_in_days: z.number().int().min(1).max(3650).optional(),
+}).strict()
 
 export async function apiKeyRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.get('/v1/api-keys', { preHandler: requireApiKey }, async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.get('/v1/api-keys', { preHandler: [requireApiKey, requireAdmin] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const ctx = request.authContext
     const keys = await apiKeyRepo.findByOrg(ctx.orgId)
 
@@ -22,13 +29,13 @@ export async function apiKeyRoutes(fastify: FastifyInstance): Promise<void> {
     }))
   })
 
-  fastify.post('/v1/api-keys', { preHandler: requireApiKey }, async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.post('/v1/api-keys', { preHandler: [requireApiKey, requireAdmin] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const ctx = request.authContext
-    const body = request.body as { name: string; expires_in_days?: number }
-
-    if (!body.name || body.name.length < 1) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'name is required' })
+    const parsed = createKeySchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: parsed.error.issues[0]?.message ?? 'Invalid API key request' })
     }
+    const body = parsed.data
 
     const { rawKey, keyHash, keyPrefix } = generateApiKey()
 
@@ -38,8 +45,8 @@ export async function apiKeyRoutes(fastify: FastifyInstance): Promise<void> {
 
     const key = await apiKeyRepo.create({
       orgId: ctx.orgId,
-      teamId: ctx.teamId,
-      userId: ctx.userId,
+      ...(ctx.teamId ? { teamId: ctx.teamId } : {}),
+      ...(ctx.userId ? { userId: ctx.userId } : {}),
       keyHash,
       keyPrefix,
       name: body.name,
@@ -63,11 +70,11 @@ export async function apiKeyRoutes(fastify: FastifyInstance): Promise<void> {
     }
   })
 
-  fastify.delete('/v1/api-keys/:keyId', { preHandler: requireApiKey }, async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.delete('/v1/api-keys/:keyId', { preHandler: [requireApiKey, requireAdmin] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const ctx = request.authContext
     const { keyId } = request.params as { keyId: string }
 
-    const revoked = await apiKeyRepo.revoke(keyId)
+    const revoked = await apiKeyRepo.revoke(keyId, ctx.orgId)
     if (!revoked) {
       return reply.code(404).send({ error: 'NOT_FOUND', message: 'API key not found' })
     }

@@ -1,7 +1,7 @@
 import type { AuthContext } from '../types/index.js'
 import { canonicalizeModelId } from './canonicalize.js'
 import { modelCatalogService } from './model-catalog-service.js'
-import { isUnknownPricing } from '../catalog-sources/models-dev-source.js'
+import { isUnknownPricing } from './catalog-pricing.js'
 
 export interface RouterDecision {
   approvedModel: string

@@ -15,14 +15,8 @@ function getJwks() {
 }
 
 export class AuthService {
-  private readonly AUTH_CACHE_TTL = 300
-
   async authenticateApiKey(rawKey: string, ip: string): Promise<AuthContext> {
     const keyHash = hashApiKey(rawKey)
-    const cacheKey = ValkeyKeys.authKey(keyHash.slice(0, 16))
-
-    const cached = await valkey.get(cacheKey)
-    if (cached) return JSON.parse(cached) as AuthContext
 
     const rows = await pg<Array<{
       key_id: string; org_id: string; team_id: string; user_id: string
@@ -53,10 +47,11 @@ export class AuthService {
       keyId: row.key_id,
       role: row.role as AuthContext['role'],
       plan: row.plan as AuthContext['plan'],
+      scopes: row.scopes ?? [],
     }
 
-    await valkey.setex(cacheKey, this.AUTH_CACHE_TTL, JSON.stringify(ctx))
     void pg`UPDATE api_keys SET last_used_at = NOW(), last_used_ip = ${ip}::inet WHERE id = ${row.key_id}`
+      .catch(err => logger.warn({ err, keyId: row.key_id }, 'Failed to update API key last-used metadata'))
 
     return ctx
   }

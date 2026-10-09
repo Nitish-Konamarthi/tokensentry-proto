@@ -1,13 +1,10 @@
 'use client'
 
-import { useState } from 'react'
 import { PageHeader } from '@/components/page-header'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Cloud, CheckCircle, XCircle } from 'lucide-react'
-import { useProviderHealth, useUpdateProviderKeys } from '@/lib/hooks'
+import { useProviderHealth } from '@/lib/hooks'
 
 const PROVIDERS = [
   { id: 'anthropic', name: 'Anthropic', models: ['Claude Haiku', 'Claude Sonnet', 'Claude Opus'] },
@@ -17,25 +14,15 @@ const PROVIDERS = [
 ]
 
 export default function ProvidersPage() {
-  const [apiKeys, setApiKeys] = useState<Record<string, string>>({})
-
   const { data: health, isLoading } = useProviderHealth()
-  const updateKeys = useUpdateProviderKeys()
 
   const configured = new Set(
     health?.providers?.filter(p => p.configured).map(p => p.provider) ?? [],
   )
 
-  function handleSave(providerId: string) {
-    const key = apiKeys[providerId]
-    if (key) {
-      updateKeys.mutate({ [providerId]: key })
-    }
-  }
-
   return (
     <div className="animate-fade-in space-y-6">
-      <PageHeader title="Providers" description="Configure AI provider API keys and monitor health" />
+      <PageHeader title="Providers" description="Monitor providers configured by the gateway operator" />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {PROVIDERS.map(provider => {
@@ -52,25 +39,9 @@ export default function ProvidersPage() {
                 </Badge>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">API Key</label>
-                  <div className="flex gap-2">
-                    <Input
-                      type="password"
-                      placeholder={isConfigured ? '••••••••••' : 'sk-...'}
-                      value={apiKeys[provider.id] ?? ''}
-                      onChange={e => setApiKeys(prev => ({ ...prev, [provider.id]: e.target.value }))}
-                    />
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => handleSave(provider.id)}
-                      disabled={!apiKeys[provider.id] || updateKeys.isPending}
-                    >
-                      Save
-                    </Button>
-                  </div>
-                </div>
+                <p className="text-sm text-muted-foreground">
+                  Credentials are configured securely by the gateway operator and are never stored in the dashboard.
+                </p>
 
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-1.5">Available Models</p>

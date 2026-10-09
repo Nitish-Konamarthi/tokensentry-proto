@@ -40,7 +40,7 @@ vi.mock('../../src/services/auth.js', () => ({
       if (key === 'ts_invalid') throw new Error('INVALID_API_KEY')
       return Promise.resolve({
         orgId: 'org-1', teamId: 'team-1', userId: 'user-1',
-        keyId: 'key-1', role: 'admin', plan: 'business',
+        keyId: 'key-1', role: 'admin', plan: 'business', scopes: ['proxy'],
       })
     }),
   },

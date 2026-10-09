@@ -1,5 +1,3 @@
-import { env } from '../../config/env.js'
-import { logger } from '../../lib/logger.js'
 import { fetchWithTimeoutAndRetry } from '../../lib/provider-fetch.js'
 
 const BASE_URL = 'https://api.anthropic.com/v1'
@@ -13,6 +11,9 @@ export async function callAnthropic(params: {
   temperature?: number
   stream?: boolean
 }): Promise<Response> {
+  const system = [params.system, ...params.messages.filter(m => m.role === 'system').map(m => m.content)]
+    .filter((text): text is string => Boolean(text?.trim()))
+    .join('\n\n')
   return fetchWithTimeoutAndRetry({
     url: `${BASE_URL}/messages`,
     method: 'POST',
@@ -25,7 +26,7 @@ export async function callAnthropic(params: {
       model: params.model,
       max_tokens: params.maxTokens ?? 1024,
       messages: params.messages.filter(m => m.role !== 'system'),
-      system: params.system,
+      system: system || undefined,
       temperature: params.temperature ?? 1,
       stream: params.stream ?? false,
     }),

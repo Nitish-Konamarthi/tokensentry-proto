@@ -1,5 +1,20 @@
-import { ModelCatalog } from './model-catalog.js'
-import type { CatalogSource, CatalogDiscoveryResult, ModelDescriptor } from './model-catalog.js'
+import type { CatalogSource, ModelDescriptor } from './model-catalog.js'
+import { isUnknownPricing } from './catalog-pricing.js'
+
+function isValidDescriptor(descriptor: ModelDescriptor): boolean {
+  const tiers = ['low', 'standard', 'high', 'premium']
+  const validCost = !descriptor.cost || (
+    isUnknownPricing(descriptor.cost)
+    || Number.isFinite(descriptor.cost.input) && descriptor.cost.input >= 0
+      && Number.isFinite(descriptor.cost.output) && descriptor.cost.output >= 0
+  )
+  return Boolean(
+    descriptor.id.trim()
+    && descriptor.owner.trim()
+    && (!descriptor.tier || tiers.includes(descriptor.tier))
+    && validCost,
+  )
+}
 
 export interface SourceSnapshot {
   status: 'healthy' | 'unhealthy'
@@ -77,7 +92,7 @@ export class ModelCatalogService {
       try {
         const result = await source.discover()
 
-        if (result.ok) {
+        if (result.ok && result.models.length > 0 && result.models.every(isValidDescriptor)) {
           const tagged = result.models.map(d => ({
             ...d,
             metadata: { ...d.metadata, sourceId: source.id },
@@ -89,29 +104,32 @@ export class ModelCatalogService {
           })
           newSourceStatus.set(source.id, { healthy: true, lastChecked: Date.now() })
         } else {
+          const errorMessage = result.ok
+            ? 'Catalog source returned no models or invalid metadata'
+            : result.error
           const prev = this.sourceSnapshots.get(source.id)
           if (prev) {
             this.sourceSnapshots.set(source.id, {
               ...prev,
               status: 'unhealthy',
-              error: result.error,
+              error: errorMessage,
             })
             newSourceStatus.set(source.id, {
               healthy: false,
               lastChecked: Date.now(),
-              error: result.error,
+              error: errorMessage,
             })
           } else {
             this.sourceSnapshots.set(source.id, {
               status: 'unhealthy',
               lastSuccessfulRefresh: 0,
               models: [],
-              error: result.error,
+              error: errorMessage,
             })
             newSourceStatus.set(source.id, {
               healthy: false,
               lastChecked: Date.now(),
-              error: result.error,
+              error: errorMessage,
             })
           }
         }
@@ -196,81 +214,6 @@ export class ModelCatalogService {
     return hasUsableData ? 'degraded' : 'unavailable'
   }
 
-  private syncInterval?: ReturnType<typeof setInterval>
-
-  startPeriodicRefresh(intervalMs = 300000): void {
-    this.stopPeriodicRefresh()
-    this.syncInterval = setInterval(async () => {
-      try {
-        await this.refresh()
-      } catch {
-      }
-    }, intervalMs)
-  }
-
-  stopPeriodicRefresh(): void {
-    if (this.syncInterval) {
-      clearInterval(this.syncInterval)
-      this.syncInterval = undefined
-    }
-  }
-
-  async manualRefresh(): Promise<void> {
-    await this.refresh()
-  }
-}
-
-class CompositeCatalogSource implements CatalogSource {
-  id = 'composite'
-
-  constructor(private sources: CatalogSource[]) {
-    this.id = sources.map(s => s.id).join('+')
-  }
-
-  async discover(): Promise<CatalogDiscoveryResult> {
-    const all: ModelDescriptor[] = []
-    let hasFailure = false
-    let lastError = ''
-
-    for (const source of this.sources) {
-      try {
-        const result = await source.discover()
-        if (result.ok) {
-          all.push(...result.models.map(d => ({ ...d, metadata: { ...d.metadata, sourceId: source.id } })))
-        } else {
-          hasFailure = true
-          lastError = result.error
-        }
-      } catch (err) {
-        hasFailure = true
-        lastError = err instanceof Error ? err.message : 'Unknown error'
-      }
-    }
-
-    if (hasFailure && all.length === 0) {
-      return { ok: false, error: lastError }
-    }
-
-    return { ok: true, models: this.mergeByPrecedence(all) }
-  }
-
-  private mergeByPrecedence(descriptors: ModelDescriptor[]): ModelDescriptor[] {
-    const seen = new Set<string>()
-    const merged: ModelDescriptor[] = []
-    for (const desc of descriptors) {
-      if (!seen.has(desc.id)) {
-        seen.add(desc.id)
-        merged.push(desc)
-      }
-    }
-    return merged
-  }
-}
-
-export interface ModelCatalogServiceConfig {
-  sources: CatalogSource[]
-  mergeStrategy?: 'precedence' | 'merge'
-  sourcePrecedence?: string[]
 }
 
 let _catalogService: ModelCatalogService | null = null

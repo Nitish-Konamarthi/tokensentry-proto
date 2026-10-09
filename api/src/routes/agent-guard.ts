@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { requireApiKey } from '../middleware/auth.js'
 import { agentGuardService } from '../services/agent-guard.js'
 import { agentGuardRepo } from '../repositories/agent-guard.js'
+import { requireAdmin } from '../middleware/auth-admin.js'
 
 export async function agentGuardRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get('/v1/agents', {
@@ -43,11 +44,17 @@ export async function agentGuardRoutes(fastify: FastifyInstance): Promise<void> 
   })
 
   fastify.post('/v1/agents/:sessionId/terminate', {
-    preHandler: [requireApiKey],
+    preHandler: [requireApiKey, requireAdmin],
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     const { sessionId } = request.params as { sessionId: string }
+    const ctx = request.authContext
+    const session = await agentGuardService.getSession(sessionId, ctx.orgId)
+    if (!session || session.orgId !== ctx.orgId) {
+      return reply.code(404).send({ error: 'NOT_FOUND', message: 'Agent session not found' })
+    }
 
-    await agentGuardService.removeSession(sessionId)
+    await agentGuardService.removeSession(sessionId, ctx.orgId)
+    await agentGuardRepo.terminateSession(ctx.orgId, sessionId)
 
     return reply.send({
       success: true,

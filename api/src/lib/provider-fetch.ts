@@ -52,7 +52,9 @@ function classifyProviderError(status: number, provider: string, message: string
     code = 'PROVIDER_BAD_REQUEST'
   } else if (status >= 500) {
     code = 'PROVIDER_UNAVAILABLE'
-    retryable = true
+    // A provider may have completed a billable POST before returning a 5xx.
+    // Retrying without a provider idempotency key can duplicate the charge.
+    retryable = false
   } else {
     code = 'PROVIDER_ERROR'
   }
@@ -64,8 +66,9 @@ export async function fetchWithTimeoutAndRetry(
   options: FetchOptions,
   providerName: string,
 ): Promise<Response> {
-  const timeoutMs = options.timeoutMs ?? 10_000
-  const maxRetries = options.maxRetries ?? 2
+  const timeoutMs = options.timeoutMs ?? 120_000
+  const method = options.method ?? 'POST'
+  const maxRetries = method === 'GET' ? options.maxRetries ?? 2 : 0
   let lastError: Error | null = null
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -75,7 +78,7 @@ export async function fetchWithTimeoutAndRetry(
       timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
       const response = await fetch(options.url, {
-        method: options.method ?? 'POST',
+        method,
         headers: options.headers ?? {},
         body: options.body,
         signal: controller.signal,
@@ -85,8 +88,8 @@ export async function fetchWithTimeoutAndRetry(
       timeoutId = null
 
       if (!response.ok) {
-        const bodyText = await response.text().catch(() => '')
-        const retryable = !NON_RETRYABLE_STATUSES.has(response.status) && response.status >= 500
+        await response.text().catch(() => '')
+        const retryable = method === 'GET' && !NON_RETRYABLE_STATUSES.has(response.status) && response.status >= 500
 
         if (retryable && attempt < maxRetries) {
           logger.warn({ provider: providerName, status: response.status, attempt }, 'Provider retryable error')
@@ -125,10 +128,10 @@ export async function fetchWithTimeoutAndRetry(
   const isNetworkError = lastError?.name === 'TypeError' || lastError?.message?.includes('fetch') || lastError?.message?.includes('network')
 
   if (isTimeout) {
-    throw new ProviderRequestError('PROVIDER_TIMEOUT', `Provider ${providerName} request timed out`, providerName, 504, true)
+    throw new ProviderRequestError('PROVIDER_TIMEOUT', `Provider ${providerName} request timed out`, providerName, 504, false)
   }
   if (isNetworkError) {
-    throw new ProviderRequestError('PROVIDER_NETWORK', `Provider ${providerName} network error`, providerName, 502, true)
+    throw new ProviderRequestError('PROVIDER_NETWORK', `Provider ${providerName} network error`, providerName, 502, false)
   }
 
   throw new ProviderRequestError('PROVIDER_ERROR', `Provider ${providerName} failed: ${(lastError as Error)?.message ?? 'Unknown error'}`, providerName, 502, false)

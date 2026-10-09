@@ -138,7 +138,7 @@ describe('DecisionEngine V1 reservation lifecycle', () => {
     expect(budgetService.releaseReservation).toHaveBeenCalledTimes(2)
     expect(budgetService.releaseReservation).toHaveBeenCalledWith({
       orgId: 'org-123',
-      estimatedCostMicros: 1000,
+      reservationId: 'call-123',
     })
   })
 
@@ -203,5 +203,23 @@ describe('DecisionEngine V1 reservation lifecycle', () => {
     })
     // releaseReservation is called twice: once by releaseReservationOnError, once by main catch
     expect(budgetService.releaseReservation).toHaveBeenCalledTimes(2)
+  })
+
+  it('reconciles the reserved budget with the full actual provider cost', async () => {
+    vi.mocked(providerRouter.routeWithFallback).mockResolvedValue({
+      response: new Response(JSON.stringify({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 100, output_tokens: 50 },
+      }), { headers: { 'content-type': 'application/json' } }),
+      finalRoute: { upstreamId: 'anthropic-direct', upstreamModelId: 'claude-sonnet-4-6', priority: 1 },
+      attempts: [{ attemptNumber: 1, upstream: 'anthropic-direct', upstreamModelId: 'claude-sonnet-4-6', routePriority: 1, success: true }],
+      fallbackUsed: false,
+    })
+
+    const result = await new DecisionEngine().decide(requestContext())
+    const reconciledCost = vi.mocked(budgetService.recordActualCost).mock.calls[0]?.[0].actualCostMicros
+
+    expect(result.statusCode).toBe(200)
+    expect(reconciledCost).toBe(Number(result.headers?.['x-cost-usd']) * 1_000_000)
   })
 })

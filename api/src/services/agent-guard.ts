@@ -89,15 +89,16 @@ redis.call('ZADD', token_key, now, total_tokens)
 -- Trim timeline to window
 local cutoff = now - 60000
 redis.call('ZREMRANGEBYSCORE', timeline_key, 0, cutoff)
-redis.call('ZREMRANGEBYSCORE', token_key, 0, cutoff)
+redis.call('ZREMRANGEBYSCORE', token_key, 0, now - 300000)
 
 -- Set TTLs (15 minutes since last activity)
-redis.call('EXPIRE', session_key, 900)
-redis.call('EXPIRE', stats_key, 900)
-redis.call('EXPIRE', timeline_key, 900)
-redis.call('EXPIRE', tools_key, 900)
-redis.call('EXPIRE', providers_key, 900)
-redis.call('EXPIRE', token_key, 900)
+local ttl = tonumber(ARGV[8])
+redis.call('EXPIRE', session_key, ttl)
+redis.call('EXPIRE', stats_key, ttl)
+redis.call('EXPIRE', timeline_key, ttl)
+redis.call('EXPIRE', tools_key, ttl)
+redis.call('EXPIRE', providers_key, ttl)
+redis.call('EXPIRE', token_key, ttl)
 
 -- Return current state as JSON
 local session_data = redis.call('HGETALL', session_key)
@@ -263,26 +264,26 @@ export class AgentGuardService {
     try {
       const result = await valkey.eval(
         LUA_RECORD_TURN, 6,
-        ValkeyKeys.agentSession(sessionId),
-        ValkeyKeys.agentStats(sessionId),
-        ValkeyKeys.agentTimeline(sessionId),
-        ValkeyKeys.agentTools(sessionId),
-        ValkeyKeys.agentProviders(sessionId),
-        ValkeyKeys.agentTokenHistory(sessionId),
+        ValkeyKeys.agentSession(input.orgId, sessionId),
+        ValkeyKeys.agentStats(input.orgId, sessionId),
+        ValkeyKeys.agentTimeline(input.orgId, sessionId),
+        ValkeyKeys.agentTools(input.orgId, sessionId),
+        ValkeyKeys.agentProviders(input.orgId, sessionId),
+        ValkeyKeys.agentTokenHistory(input.orgId, sessionId),
         now, input.inputTokens.toFixed(0), input.outputTokens.toFixed(0),
         input.provider, toolCountInMessage.toFixed(0),
-        input.agentId, input.orgId,
+        input.agentId, input.orgId, env.AGENT_GUARD_SESSION_TTL_SECONDS,
       )
     } catch (err) {
       logger.warn({ err, sessionId }, 'Agent guard record turn failed — continuing')
     }
 
-    return this.getStats(sessionId)
+    return this.getStats(sessionId, input.orgId)
   }
 
-  async getSession(sessionId: string): Promise<AgentSession | null> {
+  async getSession(sessionId: string, orgId: string): Promise<AgentSession | null> {
     try {
-      const data = await valkey.hgetall(ValkeyKeys.agentSession(sessionId))
+      const data = await valkey.hgetall(ValkeyKeys.agentSession(orgId, sessionId))
       if (!data || Object.keys(data).length === 0) return null
       return {
         agentId: data['agent_id'] ?? '',
@@ -291,12 +292,13 @@ export class AgentGuardService {
         startedAt: parseInt(data['started_at'] ?? '0', 10),
         lastRequestAt: data['last_request_at'] ? parseInt(data['last_request_at'], 10) : null,
       }
-    } catch {
-      return null
+    } catch (err) {
+      logger.error({ err, orgId, sessionId }, 'Agent guard session state unavailable')
+      throw new Error('AGENT_GUARD_UNAVAILABLE')
     }
   }
 
-  async getStats(sessionId: string): Promise<AgentStats> {
+  async getStats(sessionId: string, orgId: string): Promise<AgentStats> {
     const empty: AgentStats = {
       requestCount: 0, toolCount: 0, inputTokens: 0, outputTokens: 0,
       retryCount: 0, providerSwitchCount: 0, recursiveDepth: 0,
@@ -304,7 +306,7 @@ export class AgentGuardService {
     }
 
     try {
-      const data = await valkey.hgetall(ValkeyKeys.agentStats(sessionId))
+      const data = await valkey.hgetall(ValkeyKeys.agentStats(orgId, sessionId))
       if (!data || Object.keys(data).length === 0) return empty
       return {
         requestCount: parseInt(data['request_count'] ?? '0', 10),
@@ -317,31 +319,34 @@ export class AgentGuardService {
         consecutiveErrors: parseInt(data['consecutive_errors'] ?? '0', 10),
         lastProvider: data['last_provider'] ?? null,
       }
-    } catch {
-      return empty
+    } catch (err) {
+      logger.error({ err, orgId, sessionId }, 'Agent guard state unavailable')
+      throw new Error('AGENT_GUARD_UNAVAILABLE')
     }
   }
 
-  async getTimelineCount(sessionId: string): Promise<number> {
+  async getTimelineCount(sessionId: string, orgId: string): Promise<number> {
     try {
       const cutoff = Date.now() - TIMELINE_WINDOW_MS
-      await valkey.zremrangebyscore(ValkeyKeys.agentTimeline(sessionId), 0, cutoff)
-      return valkey.zcard(ValkeyKeys.agentTimeline(sessionId))
-    } catch {
-      return 0
+      await valkey.zremrangebyscore(ValkeyKeys.agentTimeline(orgId, sessionId), 0, cutoff)
+      return await valkey.zcard(ValkeyKeys.agentTimeline(orgId, sessionId))
+    } catch (err) {
+      logger.error({ err, orgId, sessionId }, 'Agent guard timeline unavailable')
+      throw new Error('AGENT_GUARD_UNAVAILABLE')
     }
   }
 
-  async getRecentTokens(sessionId: string): Promise<number[]> {
+  async getRecentTokens(sessionId: string, orgId: string): Promise<number[]> {
     try {
       const cutoff = Date.now() - TOKEN_HISTORY_WINDOW_MS
-      await valkey.zremrangebyscore(ValkeyKeys.agentTokenHistory(sessionId), 0, cutoff)
+      await valkey.zremrangebyscore(ValkeyKeys.agentTokenHistory(orgId, sessionId), 0, cutoff)
       const tokens = await valkey.zrangebyscore(
-        ValkeyKeys.agentTokenHistory(sessionId), cutoff, '+inf',
+        ValkeyKeys.agentTokenHistory(orgId, sessionId), cutoff, '+inf',
       )
       return tokens.map(t => parseInt(t, 10)).filter(t => !isNaN(t))
-    } catch {
-      return []
+    } catch (err) {
+      logger.error({ err, orgId, sessionId }, 'Agent guard token history unavailable')
+      throw new Error('AGENT_GUARD_UNAVAILABLE')
     }
   }
 
@@ -357,61 +362,68 @@ export class AgentGuardService {
     return detectRetry(messages)
   }
 
-  async incrementErrors(sessionId: string): Promise<void> {
+  async incrementErrors(sessionId: string, orgId: string): Promise<void> {
     try {
-      await valkey.hincrby(ValkeyKeys.agentStats(sessionId), 'consecutive_errors', 1)
-    } catch {
-      // silent
+      await valkey.hincrby(ValkeyKeys.agentStats(orgId, sessionId), 'consecutive_errors', 1)
+    } catch (err) {
+      logger.error({ err, orgId, sessionId }, 'Agent guard could not increment error state')
+      throw new Error('AGENT_GUARD_UNAVAILABLE')
     }
   }
 
-  async incrementRetry(sessionId: string): Promise<void> {
+  async incrementRetry(sessionId: string, orgId: string): Promise<void> {
     try {
-      await valkey.hincrby(ValkeyKeys.agentStats(sessionId), 'retry_count', 1)
-    } catch {
-      // silent
+      await valkey.hincrby(ValkeyKeys.agentStats(orgId, sessionId), 'retry_count', 1)
+    } catch (err) {
+      logger.error({ err, orgId, sessionId }, 'Agent guard could not increment retry state')
+      throw new Error('AGENT_GUARD_UNAVAILABLE')
     }
   }
 
-  async setBlocked(sessionId: string, ttlSeconds = 120): Promise<void> {
+  async setBlocked(sessionId: string, orgId: string, ttlSeconds = 120): Promise<void> {
     try {
-      await valkey.setex(ValkeyKeys.agentBlocked(sessionId), ttlSeconds, '1')
-      await valkey.hset(ValkeyKeys.agentSession(sessionId), 'status', 'terminated')
-    } catch {
-      // silent
+      await valkey.setex(ValkeyKeys.agentBlocked(orgId, sessionId), env.AGENT_GUARD_BLOCK_TTL_SECONDS || ttlSeconds, '1')
+      await valkey.hset(ValkeyKeys.agentSession(orgId, sessionId), 'status', 'terminated')
+    } catch (err) {
+      logger.error({ err, orgId, sessionId }, 'Agent guard could not persist block state')
+      throw new Error('AGENT_GUARD_UNAVAILABLE')
     }
   }
 
-  async isBlocked(sessionId: string): Promise<boolean> {
+  async isBlocked(sessionId: string, orgId: string): Promise<boolean> {
     try {
-      const blocked = await valkey.get(ValkeyKeys.agentBlocked(sessionId))
+      const blocked = await valkey.get(ValkeyKeys.agentBlocked(orgId, sessionId))
       return blocked === '1'
-    } catch {
-      return false
+    } catch (err) {
+      logger.error({ err, orgId, sessionId }, 'Agent guard block state unavailable')
+      throw new Error('AGENT_GUARD_UNAVAILABLE')
     }
   }
 
-  async setRecursiveDepth(sessionId: string, depth: number): Promise<void> {
+  async setRecursiveDepth(sessionId: string, orgId: string, depth: number): Promise<void> {
     try {
-      await valkey.hset(ValkeyKeys.agentStats(sessionId), 'recursive_depth', depth.toFixed(0))
-    } catch {
-      // silent
+      await valkey.hset(ValkeyKeys.agentStats(orgId, sessionId), 'recursive_depth', depth.toFixed(0))
+    } catch (err) {
+      logger.error({ err, orgId, sessionId }, 'Agent guard could not persist recursive depth')
+      throw new Error('AGENT_GUARD_UNAVAILABLE')
     }
   }
 
-  async removeSession(sessionId: string): Promise<void> {
+  async removeSession(sessionId: string, orgId: string): Promise<void> {
     const keys = [
-      ValkeyKeys.agentSession(sessionId),
-      ValkeyKeys.agentStats(sessionId),
-      ValkeyKeys.agentTimeline(sessionId),
-      ValkeyKeys.agentTools(sessionId),
-      ValkeyKeys.agentProviders(sessionId),
-      ValkeyKeys.agentTokenHistory(sessionId),
+      ValkeyKeys.agentSession(orgId, sessionId),
+      ValkeyKeys.agentStats(orgId, sessionId),
+      ValkeyKeys.agentTimeline(orgId, sessionId),
+      ValkeyKeys.agentTools(orgId, sessionId),
+      ValkeyKeys.agentProviders(orgId, sessionId),
+      ValkeyKeys.agentTokenHistory(orgId, sessionId),
+      ValkeyKeys.agentBlocked(orgId, sessionId),
     ]
     try {
       await valkey.del(keys)
-    } catch {
-      // silent
+    } catch (err) {
+      logger.error({ err, orgId, sessionId }, 'Agent guard session cleanup failed')
+      throw new Error('AGENT_GUARD_UNAVAILABLE')
     }
   }
 
@@ -433,27 +445,27 @@ export class AgentGuardService {
       isRetry,
     }
 
-    const stats = await this.getStats(input.sessionId)
+    const stats = await this.getStats(input.sessionId, input.orgId)
     if (stats.requestCount > 0) {
       checkInput.stats = stats
-      checkInput.timelineCount = await this.getTimelineCount(input.sessionId)
-      checkInput.recentTokens = await this.getRecentTokens(input.sessionId)
+      checkInput.timelineCount = await this.getTimelineCount(input.sessionId, input.orgId)
+      checkInput.recentTokens = await this.getRecentTokens(input.sessionId, input.orgId)
     }
 
     const { score, factors } = computeRiskScore(checkInput)
     const action = actionFromScore(score)
 
     if (action === 'block') {
-      await this.setBlocked(input.sessionId)
+      await this.setBlocked(input.sessionId, input.orgId)
     }
 
     if (isRetry) {
-      await this.incrementRetry(input.sessionId)
+      await this.incrementRetry(input.sessionId, input.orgId)
     }
 
     if (isRetry && stats.requestCount > 0) {
       const prevDepth = stats.recursiveDepth
-      await this.setRecursiveDepth(input.sessionId, prevDepth + 1)
+      await this.setRecursiveDepth(input.sessionId, input.orgId, prevDepth + 1)
     }
 
     return {
@@ -480,7 +492,7 @@ export class AgentGuardService {
     terminatedAt: string | null
   }>> {
     try {
-      const key = ValkeyKeys.agentSession('*').replace('*', '')
+      const key = `agent:session:${orgId}:`
       const scanCursor = '0'
       const sessions: Array<any> = []
       let cursor = scanCursor
@@ -494,8 +506,8 @@ export class AgentGuardService {
           const sessionData = await valkey.hgetall(k)
           if (!sessionData || sessionData['org_id'] !== orgId) continue
 
-          const sessionId = k.split(':').pop() ?? ''
-          const stats = await this.getStats(sessionId)
+          const sessionId = k.slice(key.length)
+          const stats = await this.getStats(sessionId, orgId)
 
           sessions.push({
             id: sessionId,

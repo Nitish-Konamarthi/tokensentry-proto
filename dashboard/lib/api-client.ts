@@ -3,20 +3,10 @@ import type {
   ApiKey, TeamMember, AuditLogEntry, ProviderHealth, AgentSession, OrgSettings,
 } from './types'
 
-const API_URL = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3000'
-
-function getKey(): string {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('ts_api_key') ?? ''
-  }
-  return process.env['NEXT_PUBLIC_TS_KEY'] ?? ''
-}
-
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`/api/gateway${path}`, {
     ...options,
     headers: {
-      'Authorization': `Bearer ${getKey()}`,
       'Content-Type': 'application/json',
       ...(options?.headers ?? {}),
     },
@@ -80,12 +70,6 @@ export const api = {
   // ── Providers ──
   getProviderHealth: () => request<{ providers: Array<{ provider: string; name: string; configured: boolean }> }>('/v1/providers/health'),
 
-  updateProviderKeys: (keys: Record<string, string>) =>
-    request<{ success: boolean; updated: string[] }>('/v1/providers/keys', {
-      method: 'PUT',
-      body: JSON.stringify(keys),
-    }),
-
   // ── Settings ──
   getSettings: () => request<OrgSettings>('/v1/settings'),
 
@@ -97,12 +81,6 @@ export const api = {
 
   // ── Team ──
   getMembers: () => request<TeamMember[]>('/v1/members'),
-
-  inviteMember: (email: string, role?: string) =>
-    request<TeamMember>('/v1/invitations', {
-      method: 'POST',
-      body: JSON.stringify({ email, role }),
-    }),
 
   removeMember: (memberId: string) =>
     request<{ success: boolean }>(`/v1/members/${memberId}`, { method: 'DELETE' }),

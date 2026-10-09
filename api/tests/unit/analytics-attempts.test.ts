@@ -13,6 +13,7 @@ vi.mock('../../src/config/env.js', () => ({
 vi.mock('../../src/clients/valkey.js', () => ({
   valkey: {
     get: vi.fn().mockResolvedValue(null),
+    del: vi.fn().mockResolvedValue(1),
     setex: vi.fn().mockResolvedValue('OK'),
     hget: vi.fn().mockResolvedValue(null),
     incrbyfloat: vi.fn().mockResolvedValue(0),

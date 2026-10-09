@@ -133,16 +133,6 @@ export function useProviderHealth() {
   })
 }
 
-export function useUpdateProviderKeys() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: api.updateProviderKeys,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['provider-health'] })
-    },
-  })
-}
-
 // ── Settings ──
 
 export function useSettings() {
@@ -174,16 +164,6 @@ export function useMembers() {
     queryFn: api.getMembers,
     enabled: !!orgId,
     staleTime: 30_000,
-  })
-}
-
-export function useInviteMember() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ email, role }: { email: string; role?: string }) => api.inviteMember(email, role),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['members'] })
-    },
   })
 }
 

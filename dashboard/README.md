@@ -30,7 +30,7 @@ npm run dev
 | /dashboard/budgets | Budget policy controls | Live API |
 | /dashboard/api-keys | API key management | Live API |
 | /dashboard/agent-guard | Agent session monitoring | Live API |
-| /dashboard/providers | Provider health & keys | Demo data |
+| /dashboard/providers | Provider health | Provider credentials are configured server-side |
 | /dashboard/team | Team member management | Demo data |
 | /dashboard/audit-log | Audit log viewer | Demo data |
 | /dashboard/settings | Organization settings | Demo data |
@@ -39,8 +39,9 @@ npm run dev
 ## Environment
 
 ```env
-NEXT_PUBLIC_API_URL=https://api.tokensentry.ai
-NEXT_PUBLIC_TS_KEY=ts_live_your_key_here
+TOKENSENTRY_API_URL=https://api.tokensentry.ai
+TOKENSENTRY_DASHBOARD_API_KEY=ts_live_your_key_here
+DASHBOARD_ALLOWED_EMAILS=admin@example.com
 ```
 
 ## Build

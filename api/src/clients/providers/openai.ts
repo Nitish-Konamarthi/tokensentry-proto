@@ -1,5 +1,3 @@
-import { env } from '../../config/env.js'
-import { logger } from '../../lib/logger.js'
 import { fetchWithTimeoutAndRetry } from '../../lib/provider-fetch.js'
 
 const BASE_URL = 'https://api.openai.com/v1'
@@ -30,6 +28,7 @@ export async function callOpenAI(params: {
       max_tokens: params.maxTokens ?? 1024,
       temperature: params.temperature ?? 1,
       stream: params.stream ?? false,
+      stream_options: params.stream ? { include_usage: true } : undefined,
     }),
   }, 'openai')
 }

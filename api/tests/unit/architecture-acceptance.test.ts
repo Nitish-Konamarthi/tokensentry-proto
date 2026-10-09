@@ -116,10 +116,7 @@ describe('Architecture Acceptance — Production Runtime', () => {
     expect(typeof health.healthy).toBe('boolean')
   })
 
-  it('Models.dev catalog source is the external source', async () => {
-    // Verify no OpenCode fictional endpoint is used in production
-    const { env } = await import('../../src/config/env.js')
-    // In test env, MODELS_DEV_API_URL is not set, so fixture is used
+  it('uses the checked-in V1 model catalog without a runtime registry dependency', () => {
     expect(modelCatalogService.listSupported().length).toBeGreaterThan(0)
   })
 })

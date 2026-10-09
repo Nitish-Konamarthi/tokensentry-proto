@@ -11,7 +11,7 @@ CREATE TABLE organizations (
   slug              TEXT NOT NULL UNIQUE,
   plan              TEXT NOT NULL DEFAULT 'starter',
   admin_email       TEXT,
-  model_policy      JSONB NOT NULL DEFAULT '{"allowed_models":["claude-haiku-4-5","claude-sonnet-4-6"],"max_model_tier":"sonnet","require_classification":true,"allow_opus":false}',
+  model_policy      JSONB NOT NULL DEFAULT '{"allowed_models":["anthropic/claude-haiku-4-5","anthropic/claude-sonnet-4-6"],"max_model_tier":"high","require_classification":true,"allow_opus":false}',
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -82,7 +82,7 @@ CREATE INDEX idx_budgets_org ON budgets(org_id);
 CREATE TABLE usage_logs (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id         UUID NOT NULL REFERENCES organizations(id),
-  team_id        UUID NOT NULL REFERENCES teams(id),
+  team_id        UUID REFERENCES teams(id),
   user_id        UUID,
   api_key_id     UUID REFERENCES api_keys(id),
   call_id        TEXT NOT NULL,
@@ -94,6 +94,7 @@ CREATE TABLE usage_logs (
   duration_ms    INTEGER NOT NULL DEFAULT 0,
   cache_hit      BOOLEAN NOT NULL DEFAULT false,
   streamed       BOOLEAN NOT NULL DEFAULT false,
+  usage_estimated BOOLEAN NOT NULL DEFAULT false,
   status_code    INTEGER NOT NULL DEFAULT 200,
   error          TEXT,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()

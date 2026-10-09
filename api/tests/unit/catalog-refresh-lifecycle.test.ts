@@ -1,33 +1,21 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { initializeCatalog } from '../../src/catalog-bootstrap.js'
 import { getCatalogService } from '../../src/services/model-catalog-service.js'
 
 describe('Periodic refresh lifecycle', () => {
   beforeEach(async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true })
     await initializeCatalog()
   })
 
-  afterEach(async () => {
-    vi.useRealTimers()
-    try { getCatalogService().stopPeriodicRefresh() } catch { /* ignore */ }
-  })
-
-  it('starts periodic refresh after initialization', () => {
+  it('loads the version-controlled catalog without a refresh timer', () => {
     const service = getCatalogService()
-    expect(service).toBeDefined()
-  })
-
-  it('stops periodic refresh cleanly on shutdown', () => {
-    const service = getCatalogService()
-    service.stopPeriodicRefresh()
-    // After stopping, calling again should not throw
-    expect(() => service.stopPeriodicRefresh()).not.toThrow()
+    expect(service.getCatalogHealth()).toBe('healthy')
+    expect(service.listSupported()).toContain('anthropic/claude-sonnet-4-6')
   })
 
   it('catalog data remains available after initialization', () => {
     const service = getCatalogService()
-    // Fixture source should be present; models-dev may fail (degraded) but descriptors remain
-    expect(service.getProjection().descriptors.size).toBeGreaterThanOrEqual(0)
+    expect(service.getProjection().descriptors.size).toBeGreaterThan(0)
+    expect(service.getCatalogHealth()).toBe('healthy')
   })
 })

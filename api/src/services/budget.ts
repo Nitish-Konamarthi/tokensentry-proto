@@ -7,70 +7,85 @@ import type { BudgetResult } from '../types/index.js'
 // Team/user-level budget enforcement is not implemented in V1.
 // The teamId/userId parameters are accepted for API compatibility but not used.
 
-const BUDGET_CHECK_SCRIPT = `
+const BUDGET_RELEASE_SCRIPT = `
+local reservation = redis.call('GET', KEYS[1])
+if not reservation then return {0, 'already_reconciled'} end
+local data = cjson.decode(reservation)
+local cost = tonumber(data.cost)
+if redis.call('EXISTS', data.monthly_key) == 1 then redis.call('INCRBYFLOAT', data.monthly_key, -cost) end
+if redis.call('EXISTS', data.daily_key) == 1 then redis.call('INCRBYFLOAT', data.daily_key, -cost) end
+redis.call('DEL', KEYS[1])
+return {1, 'released'}
+`
+
+const BUDGET_RESERVE_SCRIPT = `
+local reservation_key = KEYS[3]
+if redis.call('EXISTS', reservation_key) == 1 then
+  return {0, 'duplicate_reservation', '0', ARGV[2]}
+end
 local monthly_key = KEYS[1]
 local daily_key = KEYS[2]
 local cost = tonumber(ARGV[1])
 local monthly_limit = tonumber(ARGV[2])
 local daily_limit = tonumber(ARGV[3])
-
 local monthly = tonumber(redis.call('GET', monthly_key) or '0')
 local daily = tonumber(redis.call('GET', daily_key) or '0')
-
 if monthly_limit > 0 and monthly + cost > monthly_limit then
   return {0, 'monthly_budget_exceeded', tostring(monthly), tostring(monthly_limit)}
 end
 if daily_limit > 0 and daily + cost > daily_limit then
   return {0, 'daily_budget_exceeded', tostring(daily), tostring(daily_limit)}
 end
-
 redis.call('INCRBYFLOAT', monthly_key, cost)
 redis.call('INCRBYFLOAT', daily_key, cost)
-
-local ttl = redis.call('TTL', monthly_key)
-if ttl == -1 then
-  redis.call('EXPIRE', monthly_key, 2592000)
-end
-redis.call('EXPIRE', daily_key, 86400)
-
-local new_monthly = monthly + cost
-return {1, 'approved', tostring(new_monthly), tostring(monthly_limit)}
+if redis.call('TTL', monthly_key) == -1 then redis.call('EXPIRE', monthly_key, 2678400) end
+if redis.call('TTL', daily_key) == -1 then redis.call('EXPIRE', daily_key, 172800) end
+redis.call('SET', reservation_key, cjson.encode({monthly_key=monthly_key, daily_key=daily_key, cost=cost}), 'EX', 172800)
+return {1, 'approved', tostring(monthly + cost), tostring(monthly_limit)}
 `
 
-const BUDGET_RELEASE_SCRIPT = `
-local monthly_key = KEYS[1]
-local daily_key = KEYS[2]
-local cost = tonumber(ARGV[1])
-
-local monthly = tonumber(redis.call('GET', monthly_key) or '0')
-local daily = tonumber(redis.call('GET', daily_key) or '0')
-
-local new_monthly = math.max(0, monthly - cost)
-local new_daily = math.max(0, daily - cost)
-
-redis.call('SET', monthly_key, new_monthly)
-redis.call('SET', daily_key, new_daily)
-
-local ttl = redis.call('TTL', monthly_key)
-if ttl == -1 then
-  redis.call('EXPIRE', monthly_key, 2592000)
+const BUDGET_RECONCILE_SCRIPT = `
+local reservation = redis.call('GET', KEYS[1])
+if not reservation then return {0, 'already_reconciled'} end
+local data = cjson.decode(reservation)
+local delta = tonumber(ARGV[1]) - tonumber(data.cost)
+if delta ~= 0 then
+  if redis.call('EXISTS', data.monthly_key) == 1 then redis.call('INCRBYFLOAT', data.monthly_key, delta) end
+  if redis.call('EXISTS', data.daily_key) == 1 then redis.call('INCRBYFLOAT', data.daily_key, delta) end
 end
-redis.call('EXPIRE', daily_key, 86400)
-
-return {1, 'released', tostring(new_monthly)}
+redis.call('DEL', KEYS[1])
+return {1, 'reconciled'}
 `
+
+function budgetPeriods(date = new Date()): { month: string; day: string } {
+  return {
+    month: `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`,
+    day: date.toISOString().slice(0, 10),
+  }
+}
 
 export class BudgetService {
   async checkAndDeduct(params: {
     orgId: string
+    reservationId: string
     estimatedCostMicros: number
   }): Promise<BudgetResult> {
-    const now = new Date()
-    const yyyyMm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-    const today = now.toISOString().split('T')[0]!
+    if (!params.reservationId || !Number.isFinite(params.estimatedCostMicros) || params.estimatedCostMicros < 0) {
+      return {
+        approved: false,
+        reason: 'invalid_budget_reservation',
+        current_spend_usd: 0,
+        limit_usd: 0,
+        utilization: 0,
+        should_alert_80: false,
+        should_alert_95: false,
+      }
+    }
+    const { month, day } = budgetPeriods()
 
-    const monthlyKey = ValkeyKeys.budgetMonthly(params.orgId, yyyyMm)
-    const dailyKey = ValkeyKeys.budgetDaily(params.orgId, today)
+    const monthlyKey = ValkeyKeys.budgetMonthly(params.orgId, month)
+    const dailyKey = ValkeyKeys.budgetDaily(params.orgId, day)
+    const reservationKey = ValkeyKeys.budgetReservation(params.orgId, params.reservationId)
 
     // Get budget limits from DB (org-level only in V1)
     const policy = await budgetRepo.findOrgPolicy(params.orgId)
@@ -79,8 +94,8 @@ export class BudgetService {
 
     try {
       const result = await valkey.eval(
-        BUDGET_CHECK_SCRIPT, 2,
-        monthlyKey, dailyKey,
+        BUDGET_RESERVE_SCRIPT, 3,
+        monthlyKey, dailyKey, reservationKey,
         params.estimatedCostMicros.toFixed(4),
         monthlyLimit.toFixed(4),
         dailyLimit.toFixed(4),
@@ -118,20 +133,12 @@ export class BudgetService {
 
   async releaseReservation(params: {
     orgId: string
-    estimatedCostMicros: number
+    reservationId: string
   }): Promise<void> {
-    const now = new Date()
-    const yyyyMm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-    const today = now.toISOString().split('T')[0]!
-
-    const monthlyKey = ValkeyKeys.budgetMonthly(params.orgId, yyyyMm)
-    const dailyKey = ValkeyKeys.budgetDaily(params.orgId, today)
-
     try {
       await valkey.eval(
-        BUDGET_RELEASE_SCRIPT, 2,
-        monthlyKey, dailyKey,
-        params.estimatedCostMicros.toFixed(4),
+        BUDGET_RELEASE_SCRIPT, 1,
+        ValkeyKeys.budgetReservation(params.orgId, params.reservationId),
       )
     } catch (err) {
       logger.warn({ err, orgId: params.orgId }, 'Budget reservation release failed')
@@ -140,35 +147,30 @@ export class BudgetService {
 
   async recordActualCost(params: {
     orgId: string
+    reservationId: string
     actualCostMicros: number
   }): Promise<void> {
-    const now = new Date()
-    const yyyyMm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-    const today = now.toISOString().split('T')[0]!
-
-    const monthlyKey = ValkeyKeys.budgetMonthly(params.orgId, yyyyMm)
-    const dailyKey = ValkeyKeys.budgetDaily(params.orgId, today)
-
+    if (!params.reservationId || !Number.isFinite(params.actualCostMicros) || params.actualCostMicros < 0) {
+      logger.error({ orgId: params.orgId }, 'Invalid budget reconciliation input')
+      return
+    }
     try {
-      if (params.actualCostMicros !== 0) {
-        await valkey.incrbyfloat(monthlyKey, params.actualCostMicros)
-        await valkey.expire(monthlyKey, 2592000)
-        await valkey.incrbyfloat(dailyKey, params.actualCostMicros)
-        await valkey.expire(dailyKey, 86400)
-      }
+      await valkey.eval(
+        BUDGET_RECONCILE_SCRIPT, 1,
+        ValkeyKeys.budgetReservation(params.orgId, params.reservationId),
+        params.actualCostMicros.toFixed(4),
+      )
     } catch (err) {
       logger.warn({ err, orgId: params.orgId }, 'Cost adjustment failed')
     }
   }
 
   async getRealtimeSpend(orgId: string): Promise<{ today: number; thisMonth: number }> {
-    const now = new Date()
-    const yyyyMm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-    const today = now.toISOString().split('T')[0]!
+    const { month, day } = budgetPeriods()
 
     const [monthly, daily] = await valkey.mget(
-      ValkeyKeys.budgetMonthly(orgId, yyyyMm),
-      ValkeyKeys.budgetDaily(orgId, today),
+      ValkeyKeys.budgetMonthly(orgId, month),
+      ValkeyKeys.budgetDaily(orgId, day),
     )
 
     return {

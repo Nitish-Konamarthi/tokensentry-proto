@@ -1,12 +1,17 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { requireApiKey } from '../middleware/auth.js'
 import { auditLogRepo } from '../repositories/audit-log.js'
+import { requireAdmin } from '../middleware/auth-admin.js'
 
 export async function auditLogRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.get('/v1/audit-logs', { preHandler: requireApiKey }, async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.get('/v1/audit-logs', { preHandler: [requireApiKey, requireAdmin] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const ctx = request.authContext
     const query = request.query as { limit?: string; action?: string }
-    const limit = Math.min(parseInt(query.limit ?? '50', 10), 200)
+    const requestedLimit = Number(query.limit ?? 50)
+    if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 200) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'limit must be an integer between 1 and 200' })
+    }
+    const limit = requestedLimit
 
     let logs: Awaited<ReturnType<typeof auditLogRepo.findByOrg>>
     if (query.action && query.action !== 'all') {

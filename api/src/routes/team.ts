@@ -1,10 +1,9 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { requireApiKey } from '../middleware/auth.js'
 import { requireAdmin } from '../middleware/auth-admin.js'
-import { orgRepo } from '../repositories/org.js'
 import { auditLogRepo } from '../repositories/audit-log.js'
 import { extractClientIp } from '../lib/ip.js'
-import { randomUUID } from 'crypto'
+import { orgRepo } from '../repositories/org.js'
 
 export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get('/v1/members', { preHandler: requireApiKey }, async (request: FastifyRequest) => {
@@ -21,40 +20,10 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
   })
 
   fastify.post('/v1/invitations', { preHandler: [requireApiKey, requireAdmin] }, async (request: FastifyRequest, reply: FastifyReply) => {
-    const ctx = request.authContext
-    const body = request.body as { email: string; role?: string }
-
-    if (!body.email || !body.email.includes('@')) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'Valid email is required' })
-    }
-
-    const role = body.role ?? 'member'
-    if (!['admin', 'member'].includes(role)) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'Role must be "admin" or "member"' })
-    }
-
-    const member = await orgRepo.addMember({
-      orgId: ctx.orgId,
-      userId: randomUUID(),
-      role,
-      email: body.email,
+    return reply.code(501).send({
+      error: 'INVITATIONS_NOT_CONFIGURED',
+      message: 'Member invitations require an identity-provider invitation integration, which is not configured.',
     })
-
-    await auditLogRepo.insert({
-      orgId: ctx.orgId,
-      actorId: ctx.userId,
-      action: 'member.invited',
-      resource: `member:${member.id}`,
-      details: { email: body.email, role } as Record<string, unknown>,
-      ip: extractClientIp(request),
-    })
-
-    return {
-      id: member.id,
-      email: member.email,
-      role: member.role,
-      joined_at: member.joinedAt?.toISOString(),
-    }
   })
 
   fastify.delete('/v1/members/:memberId', { preHandler: [requireApiKey, requireAdmin] }, async (request: FastifyRequest, reply: FastifyReply) => {

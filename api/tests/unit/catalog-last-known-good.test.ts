@@ -138,14 +138,11 @@ describe('Last-Known-Good Catalog Semantics', () => {
     expect(snapshotB?.models).toHaveLength(2)
   })
 
-  it('treats empty success differently from failure', async () => {
-    let returnEmpty = true
+  it('treats an empty catalog response as unhealthy and retains the last known good snapshot', async () => {
+    let returnEmpty = false
     const source: CatalogSource = {
       id: 'test-source',
-      discover: async () => {
-        if (returnEmpty) return { ok: true, models: [] }
-        return { ok: false, error: 'Source down' }
-      },
+      discover: async () => ({ ok: true, models: returnEmpty ? [] : [{ id: 'provider/model', owner: 'provider', tier: 'standard', cost: { input: 1, output: 2 } }] }),
       refresh: async () => {},
     }
 
@@ -158,12 +155,29 @@ describe('Last-Known-Good Catalog Semantics', () => {
     await service.refresh()
     expect(service.getCatalogHealth()).toBe('healthy')
     expect(service.getSourceSnapshot('test-source')?.status).toBe('healthy')
-    expect(service.getSourceSnapshot('test-source')?.models).toHaveLength(0)
+    expect(service.isSupported('provider/model')).toBe(true)
 
-    returnEmpty = false
+    returnEmpty = true
     await service.refresh()
-    expect(service.getCatalogHealth()).toBe('unavailable')
+    expect(service.getCatalogHealth()).toBe('degraded')
     expect(service.getSourceSnapshot('test-source')?.status).toBe('unhealthy')
+    expect(service.isSupported('provider/model')).toBe(true)
+  })
+
+  it('rejects invalid model metadata without replacing a valid snapshot', async () => {
+    let invalid = false
+    const source: CatalogSource = {
+      id: 'validated-source',
+      discover: async () => ({ ok: true, models: invalid
+        ? [{ id: 'provider/model', owner: '', tier: 'strange' as any, cost: { input: -1, output: Number.NaN } }]
+        : [{ id: 'provider/model', owner: 'provider', tier: 'standard', cost: { input: 1, output: 2 } }] }),
+    }
+    service = new ModelCatalogService({ sources: [source] })
+    await service.refresh()
+    invalid = true
+    await service.refresh()
+    expect(service.getSourceSnapshot('validated-source')?.status).toBe('unhealthy')
+    expect(service.isSupported('provider/model')).toBe(true)
   })
 
   it('reports unavailable when all sources fail on first boot', async () => {

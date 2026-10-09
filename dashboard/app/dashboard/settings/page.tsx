@@ -36,7 +36,7 @@ export default function SettingsPage() {
       model_policy: {
         require_classification: requireClassification,
         allowed_models: (settings?.model_policy as ModelPolicy | null)?.allowed_models ?? [],
-        max_model_tier: (settings?.model_policy as ModelPolicy | null)?.max_model_tier ?? 'sonnet',
+        max_model_tier: (settings?.model_policy as ModelPolicy | null)?.max_model_tier ?? 'high',
       },
     })
   }

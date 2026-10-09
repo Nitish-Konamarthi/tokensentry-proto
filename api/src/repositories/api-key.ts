@@ -49,10 +49,10 @@ export class ApiKeyRepository {
     return rows[0]!
   }
 
-  async revoke(id: string) {
+  async revoke(id: string, orgId: string) {
     const rows = await db.update(apiKeys)
       .set({ revokedAt: new Date() })
-      .where(eq(apiKeys.id, id))
+      .where(and(eq(apiKeys.id, id), eq(apiKeys.orgId, orgId), isNull(apiKeys.revokedAt)))
       .returning()
     return rows[0] ?? null
   }

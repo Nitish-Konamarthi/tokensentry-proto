@@ -35,7 +35,8 @@ services:
       - dashboard
       - website
     networks:
-      - internal
+      internal:
+        ipv4_address: 172.20.0.2
     healthcheck:
       test: ["CMD", "nginx", "-t"]
       interval: 30s
@@ -75,6 +76,7 @@ services:
       HOST: 0.0.0.0
       PORT: "3000"
       LOG_LEVEL: info
+      TRUSTED_PROXY_CIDRS: 172.20.0.2/32,127.0.0.1/32
       DATABASE_URL: ${DATABASE_URL}
       VALKEY_URL: redis://valkey:6379
       API_KEY_PEPPER: ${TS_PEPPER}
@@ -117,8 +119,9 @@ services:
       NODE_ENV: production
       HOSTNAME: 0.0.0.0
       PORT: "3001"
-      NEXT_PUBLIC_API_URL: https://api.tokensentry.ai
-      NEXT_PUBLIC_TS_KEY: ${DASHBOARD_API_KEY}
+      TOKENSENTRY_API_URL: http://api:3000
+      TOKENSENTRY_DASHBOARD_API_KEY: ${TOKENSENTRY_DASHBOARD_API_KEY}
+      DASHBOARD_ALLOWED_EMAILS: ${DASHBOARD_ALLOWED_EMAILS}
       AUTH0_SECRET: ${AUTH0_SECRET}
       AUTH0_BASE_URL: https://app.tokensentry.ai
       AUTH0_ISSUER_BASE_URL: https://${AUTH0_DOMAIN}
@@ -242,5 +245,3 @@ services:
       options:
         max-size: "10m"
         max-file: "2"
-
-

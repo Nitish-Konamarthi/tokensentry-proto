@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isUnknownPricing } from '../../src/catalog-sources/models-dev-source.js'
+import { isUnknownPricing } from '../../src/services/catalog-pricing.js'
 
 describe('Unknown pricing semantics', () => {
   it('distinguishes NaN sentinel from real zero pricing', () => {

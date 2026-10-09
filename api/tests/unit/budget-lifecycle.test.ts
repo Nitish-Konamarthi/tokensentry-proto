@@ -10,6 +10,7 @@ vi.mock('../../src/clients/valkey.js', () => ({
   ValkeyKeys: {
     budgetMonthly: (org: string, p: string) => `budget:monthly:${org}:${p}`,
     budgetDaily: (org: string, d: string) => `budget:daily:${org}:${d}`,
+    budgetReservation: (org: string, id: string) => `budget:reservation:${org}:${id}`,
   },
 }))
 
@@ -37,10 +38,10 @@ describe('Budget reservation lifecycle', () => {
     })
 
     // Reserve 100 micros
-    await budget.checkAndDeduct({ orgId: 'org-1', estimatedCostMicros: 100_000 })
+    await budget.checkAndDeduct({ orgId: 'org-1', reservationId: 'call-1', estimatedCostMicros: 100_000 })
     // Actual equals estimated -> delta 0
-    await budget.recordActualCost({ orgId: 'org-1', actualCostMicros: 0 })
-    expect(vi.mocked(valkey.eval)).toHaveBeenCalledTimes(1)
+    await budget.recordActualCost({ orgId: 'org-1', reservationId: 'call-1', actualCostMicros: 100_000 })
+    expect(vi.mocked(valkey.eval)).toHaveBeenCalledTimes(2)
     expect(vi.mocked(valkey.incrbyfloat)).toHaveBeenCalledTimes(0)
   })
 
@@ -51,12 +52,10 @@ describe('Budget reservation lifecycle', () => {
       id: 'test', orgId: 'org-1', monthlyLimitMicros: '500000000',
     })
 
-    await budget.checkAndDeduct({ orgId: 'org-1', estimatedCostMicros: 100_000 })
-    await budget.recordActualCost({ orgId: 'org-1', actualCostMicros: -20_000 })
-    // Delta is negative (actual < estimated), so budget decreases by 20_000 micros
-    expect(vi.mocked(valkey.incrbyfloat)).toHaveBeenCalledWith(
-      expect.stringContaining('budget:monthly'), -20000
-    )
+    await budget.checkAndDeduct({ orgId: 'org-1', reservationId: 'call-2', estimatedCostMicros: 100_000 })
+    await budget.recordActualCost({ orgId: 'org-1', reservationId: 'call-2', actualCostMicros: 80_000 })
+    expect(vi.mocked(valkey.eval)).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(valkey.eval).mock.calls[1]?.[3]).toBe('80000.0000')
   })
 
   it('provider failure releases reservation exactly once', async () => {
@@ -65,8 +64,8 @@ describe('Budget reservation lifecycle', () => {
       id: 'test', orgId: 'org-1', monthlyLimitMicros: '500000000',
     })
 
-    await budget.checkAndDeduct({ orgId: 'org-1', estimatedCostMicros: 50_000 })
-    await budget.releaseReservation({ orgId: 'org-1', estimatedCostMicros: 50_000 })
+    await budget.checkAndDeduct({ orgId: 'org-1', reservationId: 'call-3', estimatedCostMicros: 50_000 })
+    await budget.releaseReservation({ orgId: 'org-1', reservationId: 'call-3' })
     expect(vi.mocked(valkey.eval)).toHaveBeenCalledTimes(2)
   })
 
@@ -78,7 +77,7 @@ describe('Budget reservation lifecycle', () => {
     })
 
     // Release 50_000 micros from a concurrent reservation
-    await budget.releaseReservation({ orgId: 'org-1', estimatedCostMicros: 50_000 })
+    await budget.releaseReservation({ orgId: 'org-1', reservationId: 'call-untracked' })
     // The script clamps to zero, so it should stay at 50_000 (not go negative)
     expect(vi.mocked(valkey.eval)).toHaveBeenCalled()
   })

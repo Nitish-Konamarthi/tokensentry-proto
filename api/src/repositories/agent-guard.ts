@@ -44,7 +44,7 @@ export class AgentGuardRepository {
   }): Promise<AgentSessionRow> {
     const existing = await db.select({ id: agentSessions.id })
       .from(agentSessions)
-      .where(eq(agentSessions.sessionId, data.sessionId))
+      .where(and(eq(agentSessions.orgId, data.orgId), eq(agentSessions.sessionId, data.sessionId)))
       .limit(1)
 
     if (existing[0]) {
@@ -57,7 +57,7 @@ export class AgentGuardRepository {
           status: data.action === 'block' ? 'terminated' : undefined,
           terminatedAt: data.action === 'block' ? new Date() : undefined,
         })
-        .where(eq(agentSessions.id, existing[0].id))
+        .where(and(eq(agentSessions.id, existing[0].id), eq(agentSessions.orgId, data.orgId)))
         .returning()
       return rows[0] as unknown as AgentSessionRow
     }
@@ -120,6 +120,14 @@ export class AgentGuardRepository {
       .orderBy(desc(agentSessions.terminatedAt))
       .limit(20)
     return rows as unknown as AgentSessionRow[]
+  }
+
+  async terminateSession(orgId: string, sessionId: string): Promise<boolean> {
+    const rows = await db.update(agentSessions)
+      .set({ status: 'terminated', terminatedAt: new Date(), lastAction: 'block' })
+      .where(and(eq(agentSessions.orgId, orgId), eq(agentSessions.sessionId, sessionId)))
+      .returning({ id: agentSessions.id })
+    return rows.length > 0
   }
 }
 

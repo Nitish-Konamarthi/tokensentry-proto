@@ -21,13 +21,13 @@ vi.mock('../../src/clients/valkey.js', () => ({
     scan: vi.fn().mockResolvedValue(['0', []]),
   },
   ValkeyKeys: {
-    agentSession: (sid: string) => `agent:session:${sid}`,
-    agentStats: (sid: string) => `agent:stats:${sid}`,
-    agentTimeline: (sid: string) => `agent:timeline:${sid}`,
-    agentTools: (sid: string) => `agent:tools:${sid}`,
-    agentProviders: (sid: string) => `agent:providers:${sid}`,
-    agentTokenHistory: (sid: string) => `agent:token:${sid}`,
-    agentBlocked: (sid: string) => `agent:blocked:${sid}`,
+    agentSession: (org: string, sid: string) => `agent:session:${org}:${sid}`,
+    agentStats: (org: string, sid: string) => `agent:stats:${org}:${sid}`,
+    agentTimeline: (org: string, sid: string) => `agent:timeline:${org}:${sid}`,
+    agentTools: (org: string, sid: string) => `agent:tools:${org}:${sid}`,
+    agentProviders: (org: string, sid: string) => `agent:providers:${org}:${sid}`,
+    agentTokenHistory: (org: string, sid: string) => `agent:token:${org}:${sid}`,
+    agentBlocked: (org: string, sid: string) => `agent:blocked:${org}:${sid}`,
   },
   checkValkeyHealth: vi.fn().mockResolvedValue(true),
   closeValkey: vi.fn(),
@@ -99,11 +99,11 @@ describe('Agent Guard V1', () => {
   it('blocked session: returns blocked result', async () => {
     const valkey = await import('../../src/clients/valkey.js')
     vi.mocked(valkey.valkey.get).mockResolvedValue('1')
-    const blocked = await agentGuardService.isBlocked('sess-block')
+    const blocked = await agentGuardService.isBlocked('sess-block', 'org-1')
     expect(blocked).toBe(true)
   })
   it('state expiration: session removed after TTL (verified by source)', async () => {
-    await agentGuardService.removeSession('sess-expire')
+    await agentGuardService.removeSession('sess-expire', 'org-1')
     const valkey = await import('../../src/clients/valkey.js')
     expect(vi.mocked(valkey.valkey.del)).toHaveBeenCalled()
   })

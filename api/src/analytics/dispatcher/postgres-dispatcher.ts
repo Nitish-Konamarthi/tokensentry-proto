@@ -13,9 +13,9 @@ export class PostgresAnalyticsDispatcher implements AnalyticsDispatcher {
       await usageLogRepo.insert({
         callId: callId || `unknown-${Date.now()}`,
         orgId: params.requestMetadata.orgId,
-        teamId: params.requestMetadata.teamId,
-        userId: params.requestMetadata.userId ?? '',
-        apiKeyId: params.requestMetadata.apiKeyId ?? '',
+        teamId: params.requestMetadata.teamId || null,
+        userId: params.requestMetadata.userId || null,
+        apiKeyId: params.requestMetadata.apiKeyId || null,
         model: params.model,
         provider: params.provider,
         modelOwner: params.modelOwner,
@@ -35,6 +35,7 @@ export class PostgresAnalyticsDispatcher implements AnalyticsDispatcher {
         durationMs: Math.max(0, params.durationMs ?? 0),
         cacheHit: !!params.cacheHit,
         streamed: !!params.streamed,
+        usageEstimated: !!params.usageEstimated,
         statusCode: params.statusCode ?? 200,
         error: params.error,
       })

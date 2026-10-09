@@ -4,6 +4,24 @@ import { requireAdmin } from '../middleware/auth-admin.js'
 import { budgetService } from '../services/budget.js'
 import { budgetRepo } from '../repositories/budget.js'
 import { usageLogRepo } from '../repositories/usage-log.js'
+import { z } from 'zod'
+
+const budgetBodySchema = z.object({
+  monthly_limit_usd: z.number().finite().positive().max(1_000_000_000),
+  daily_limit_usd: z.number().finite().positive().max(1_000_000_000).optional(),
+  alert_at_80: z.boolean().optional(),
+  alert_at_95: z.boolean().optional(),
+  on_exhaustion: z.literal('block').optional(),
+}).strict().refine(value => value.daily_limit_usd === undefined || value.daily_limit_usd <= value.monthly_limit_usd, {
+  message: 'daily_limit_usd must not exceed monthly_limit_usd',
+  path: ['daily_limit_usd'],
+})
+
+const daysSchema = z.coerce.number().int().min(1).max(90)
+
+function invalid(reply: FastifyReply, message: string) {
+  return reply.code(400).send({ error: 'VALIDATION_ERROR', message })
+}
 
 export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get('/v1/budgets', { preHandler: requireApiKey }, async (request: FastifyRequest, reply: FastifyReply) => {
@@ -30,23 +48,19 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
     }
   })
 
-  fastify.post('/v1/budgets', { preHandler: requireApiKey }, async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.post('/v1/budgets', { preHandler: [requireApiKey, requireAdmin] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const ctx = request.authContext
-    const body = request.body as {
-      monthly_limit_usd: number
-      daily_limit_usd?: number
-      alert_at_80?: boolean
-      alert_at_95?: boolean
-      on_exhaustion?: string
-    }
+    const parsed = budgetBodySchema.safeParse(request.body)
+    if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? 'Invalid budget policy')
+    const body = parsed.data
 
     const policy = await budgetRepo.upsert({
       orgId: ctx.orgId,
       monthlyLimitMicros: String(Math.floor(body.monthly_limit_usd * 1_000_000)),
-      dailyLimitMicros: body.daily_limit_usd ? String(Math.floor(body.daily_limit_usd * 1_000_000)) : undefined,
+      dailyLimitMicros: body.daily_limit_usd === undefined ? undefined : String(Math.floor(body.daily_limit_usd * 1_000_000)),
       alertAt80Pct: body.alert_at_80,
       alertAt95Pct: body.alert_at_95,
-      onExhaustion: body.on_exhaustion,
+      onExhaustion: body.on_exhaustion ?? 'block',
     })
 
     return { success: true, policy_id: policy.id }
@@ -54,11 +68,13 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get('/v1/budgets/spend', { preHandler: requireApiKey }, async (request: FastifyRequest, reply: FastifyReply) => {
     const ctx = request.authContext
-    const days = parseInt((request.query as Record<string, string>).days ?? '30', 10)
+    const parsedDays = daysSchema.safeParse((request.query as Record<string, string>).days ?? '30')
+    if (!parsedDays.success) return invalid(reply, 'days must be an integer between 1 and 90')
+    const days = parsedDays.data
 
     const [timeSeries, modelDist, monthly] = await Promise.all([
-      usageLogRepo.getSpendTimeSeries(ctx.orgId, Math.min(days, 90)),
-      usageLogRepo.getModelDistribution(ctx.orgId, Math.min(days, 90)),
+      usageLogRepo.getSpendTimeSeries(ctx.orgId, days),
+      usageLogRepo.getModelDistribution(ctx.orgId, days),
       usageLogRepo.getOrgMonthlySpend(ctx.orgId),
     ])
 

@@ -12,7 +12,7 @@ import { ProviderRequestError } from '../../lib/provider-fetch.js'
 import type { UpstreamId } from '../../types/index.js'
 import { modelCatalogService } from '../../services/model-catalog-service.js'
 import { canonicalizeModelId, getModelOwner } from '../../services/canonicalize.js'
-import { isUnknownPricing } from '../../catalog-sources/models-dev-source.js'
+import { isUnknownPricing } from '../../services/catalog-pricing.js'
 import {
   computeRequestHash,
   estimateTokenCount,
@@ -51,7 +51,7 @@ export class DecisionEngine {
     }
 
     if (ctx.agent?.agentId && ctx.agent?.sessionId) {
-      const blocked = await agentGuardService.isBlocked(ctx.agent.sessionId)
+      const blocked = await agentGuardService.isBlocked(ctx.agent.sessionId, ctx.organization.id)
       if (blocked) {
         // Ensure PostgreSQL session status reflects blocked state
         void agentGuardRepo.upsertSession({
@@ -82,7 +82,10 @@ export class DecisionEngine {
 
     // Fail closed: reject requests with unknown pricing before budget check
     const descriptor = modelCatalogService.getDescriptor(canonicalRequested)
-    if (!descriptor || !descriptor.cost || isUnknownPricing(descriptor.cost)) {
+    if (!descriptor) {
+      return { statusCode: 400, body: { error: 'UNSUPPORTED_MODEL', message: 'Requested model is not supported', call_id: ctx.requestId } }
+    }
+    if (!descriptor.cost || isUnknownPricing(descriptor.cost)) {
       logger.warn({ model: canonicalRequested, orgId: ctx.organization.id }, 'Unknown pricing - rejecting request (fail-closed)')
       void analyticsService.recordCall({
         orgId: ctx.organization.id,
@@ -117,8 +120,8 @@ export class DecisionEngine {
     // Fetch organization's actual model policy (before budget reserve so routing uses real policy)
     const orgData = await orgRepo.findById(ctx.organization.id)
     const orgPolicy = (orgData?.modelPolicy as { allowed_models?: string[]; max_model_tier?: string }) ?? {
-      allowed_models: ['claude-haiku-4-5', 'claude-sonnet-4-6'],
-      max_model_tier: 'sonnet',
+      allowed_models: ['anthropic/claude-haiku-4-5', 'anthropic/claude-sonnet-4-6'],
+      max_model_tier: 'high',
     }
 
     const routeDecision = await routerService.route({
@@ -131,38 +134,6 @@ export class DecisionEngine {
 
     const approvedModel = routeDecision.approvedModel
     const canonicalFinal = canonicalizeModelId(approvedModel)
-
-    // Fail closed: ensure final model also has known pricing before budget check
-    const finalDescriptor = modelCatalogService.getDescriptor(canonicalFinal)
-    if (!finalDescriptor || !finalDescriptor.cost || isUnknownPricing(finalDescriptor.cost)) {
-      logger.warn({ model: canonicalFinal, orgId: ctx.organization.id }, 'Final model has unknown pricing - rejecting request (fail-closed)')
-      void analyticsService.recordCall({
-        orgId: ctx.organization.id,
-        teamId: ctx.team.id,
-        userId: ctx.user.id,
-        apiKeyId: ctx.apiKey,
-        model: canonicalFinal,
-        provider: 'unknown',
-        inputTokens: 0,
-        outputTokens: 0,
-        costMicros: 0,
-        durationMs: Date.now() - ctx.timestamps.receivedAt,
-        cacheHit: false,
-        streamed: ctx.request.payload.stream ?? false,
-        statusCode: 400,
-        error: 'UNKNOWN_PRICING',
-        callId: ctx.requestId,
-      })
-
-      return {
-        statusCode: 400,
-        body: {
-          error: 'UNKNOWN_PRICING',
-          message: `Model ${canonicalFinal} has unknown pricing. Cannot execute request without cost estimation.`,
-          call_id: ctx.requestId,
-        },
-      }
-    }
 
     if (!approvedModel || !modelCatalogService.isSupported(canonicalFinal)) {
       const canonicalRequested = canonicalizeModelId(ctx.request.payload.model)
@@ -179,12 +150,21 @@ export class DecisionEngine {
       }
     }
 
+    const finalDescriptor = modelCatalogService.getDescriptor(canonicalFinal)
+    if (!finalDescriptor?.cost || isUnknownPricing(finalDescriptor.cost)) {
+      return {
+        statusCode: 400,
+        body: { error: 'UNKNOWN_PRICING', message: `Model ${canonicalFinal} has unknown pricing.`, call_id: ctx.requestId },
+      }
+    }
+
     // Calculate estimate and reserve budget using the FINAL selected model
     const estimatedCostUsd = routerService.estimateCost(inputTokens, outputTokens, canonicalFinal)
     const estimatedCostMicros = Math.ceil(estimatedCostUsd * 1_000_000)
 
     const budgetCheck = await budgetService.checkAndDeduct({
       orgId: ctx.organization.id,
+      reservationId: ctx.requestId,
       estimatedCostMicros,
     })
 
@@ -205,7 +185,9 @@ export class DecisionEngine {
     }
 
     if (!budgetCheck.approved) {
-      logger.warn({ orgId: ctx.organization.id, reason: budgetCheck.reason }, 'Budget exceeded')
+      const unavailable = budgetCheck.reason === 'budget_check_unavailable'
+      const statusCode = unavailable ? 503 : 402
+      logger.warn({ orgId: ctx.organization.id, reason: budgetCheck.reason }, unavailable ? 'Budget enforcement unavailable; request blocked' : 'Budget exceeded')
 
       void analyticsService.recordCall({
         orgId: ctx.organization.id,
@@ -220,16 +202,18 @@ export class DecisionEngine {
         durationMs: Date.now() - ctx.timestamps.receivedAt,
         cacheHit: false,
         streamed: ctx.request.payload.stream ?? false,
-        statusCode: 402,
+        statusCode,
         error: budgetCheck.reason,
         callId: ctx.requestId,
       })
 
       return {
-        statusCode: 402,
+        statusCode,
         body: {
-          error: 'BUDGET_EXCEEDED',
-          message: `Monthly AI budget exceeded. Spend: $${budgetCheck.current_spend_usd.toFixed(4)} / Limit: $${budgetCheck.limit_usd.toFixed(4)}`,
+          error: unavailable ? 'BUDGET_CHECK_UNAVAILABLE' : 'BUDGET_EXCEEDED',
+          message: unavailable
+            ? 'Budget enforcement is temporarily unavailable; request was blocked.'
+            : `AI budget exceeded. Spend: $${budgetCheck.current_spend_usd.toFixed(4)} / Limit: $${budgetCheck.limit_usd.toFixed(4)}`,
           reason: budgetCheck.reason,
           current_spend_usd: budgetCheck.current_spend_usd,
           limit_usd: budgetCheck.limit_usd,
@@ -242,7 +226,7 @@ export class DecisionEngine {
 
     const releaseReservation = () => budgetService.releaseReservation({
       orgId: ctx.organization.id,
-      estimatedCostMicros,
+      reservationId: ctx.requestId,
     })
     const releaseReservationOnError = async <T>(operation: () => T | Promise<T>): Promise<T> => {
       try {
@@ -373,7 +357,12 @@ export class DecisionEngine {
               'x-final-model': finalModel,
             })
 
-            let streamUsage: { inputTokens: number; outputTokens: number } | null = null
+            const streamUsageState: { value: {
+              inputTokens: number
+              outputTokens: number
+              hasInput: boolean
+              hasOutput: boolean
+            } | null } = { value: null }
             let streamError: Error | null = null
 
             try {
@@ -402,7 +391,12 @@ export class DecisionEngine {
                       const data = JSON.parse(trimmed.slice(6))
                       const usage = this.parseStreamingUsage(finalRoute.upstreamId, data)
                       if (usage) {
-                        streamUsage = usage
+                        streamUsageState.value = {
+                          inputTokens: usage.inputTokens ?? streamUsageState.value?.inputTokens ?? contextTokens,
+                          outputTokens: usage.outputTokens ?? streamUsageState.value?.outputTokens ?? 0,
+                          hasInput: usage.inputTokens !== undefined || streamUsageState.value?.hasInput === true,
+                          hasOutput: usage.outputTokens !== undefined || streamUsageState.value?.hasOutput === true,
+                        }
                       }
                     } catch {
                       // Ignore parse errors for non-JSON lines
@@ -417,7 +411,12 @@ export class DecisionEngine {
                   const data = JSON.parse(buffer.trim().slice(6))
                   const usage = this.parseStreamingUsage(finalRoute.upstreamId, data)
                   if (usage) {
-                    streamUsage = usage
+                    streamUsageState.value = {
+                      inputTokens: usage.inputTokens ?? streamUsageState.value?.inputTokens ?? contextTokens,
+                      outputTokens: usage.outputTokens ?? streamUsageState.value?.outputTokens ?? 0,
+                      hasInput: usage.inputTokens !== undefined || streamUsageState.value?.hasInput === true,
+                      hasOutput: usage.outputTokens !== undefined || streamUsageState.value?.hasOutput === true,
+                    }
                   }
                 } catch {
                   // Ignore
@@ -431,28 +430,34 @@ export class DecisionEngine {
             }
 
             const durationMs = Date.now() - ctx.timestamps.receivedAt
-            const usageEstimated = !streamUsage
+            const streamUsage = streamUsageState.value
+            const usageEstimated = !streamUsage || !streamUsage.hasInput || !streamUsage.hasOutput
 
             let finalInputTokens = contextTokens
             let finalOutputTokens = 0
             let finalCostMicros = estimatedCostMicros
 
-            if (streamUsage) {
+            if (streamUsage && streamUsage.hasInput && streamUsage.hasOutput && streamUsage.inputTokens > 0) {
               finalInputTokens = streamUsage.inputTokens
               finalOutputTokens = streamUsage.outputTokens
               finalCostMicros = Math.ceil(this.calculateProviderCost(finalRoute.upstreamId, finalModel, finalInputTokens, finalOutputTokens) * 1_000_000)
 
               await budgetService.recordActualCost({
                 orgId: ctx.organization.id,
-                actualCostMicros: finalCostMicros - estimatedCostMicros,
+                reservationId: ctx.requestId,
+                actualCostMicros: finalCostMicros,
               })
-            } else if (streamError) {
-              // Stream failed without reliable usage: release estimated reservation
-              await budgetService.releaseReservation({
+            } else {
+              // Without provider usage, preserve the reservation as a
+              // conservative charge. A partial stream may already be billable.
+              finalInputTokens = streamUsage?.inputTokens || contextTokens
+              finalOutputTokens = streamUsage?.outputTokens ?? outputTokens
+              await budgetService.recordActualCost({
                 orgId: ctx.organization.id,
-                estimatedCostMicros,
+                reservationId: ctx.requestId,
+                actualCostMicros: estimatedCostMicros,
               })
-              finalCostMicros = 0
+              finalCostMicros = estimatedCostMicros
             }
 
             const canonicalRequested = canonicalizeModelId(ctx.request.payload.model)
@@ -508,11 +513,15 @@ export class DecisionEngine {
 
       const responseData = await providerResponse.json() as any
       const { content, inputTokens, outputTokens: outTokens } = this.parseProviderResponse(finalRoute.upstreamId, responseData)
-      const actualCostMicros = Math.ceil(this.calculateProviderCost(finalRoute.upstreamId, finalModel, inputTokens, outTokens) * 1_000_000)
+      const usageEstimated = inputTokens <= 0
+      const actualCostMicros = usageEstimated
+        ? estimatedCostMicros
+        : Math.ceil(this.calculateProviderCost(finalRoute.upstreamId, finalModel, inputTokens, outTokens) * 1_000_000)
 
       await budgetService.recordActualCost({
         orgId: ctx.organization.id,
-        actualCostMicros: actualCostMicros - estimatedCostMicros,
+        reservationId: ctx.requestId,
+        actualCostMicros,
       })
 
       if (ctx.agent?.agentId && ctx.agent?.sessionId) {
@@ -595,6 +604,7 @@ export class DecisionEngine {
         cacheHit: false,
         streamed: false,
         statusCode: 200,
+        usageEstimated,
         callId: ctx.requestId,
       })
 
@@ -621,7 +631,7 @@ export class DecisionEngine {
         statusCode: 200,
         headers: {
           'x-final-model': finalModel,
-          'x-cost-usd': actualCostMicros.toFixed(6),
+          'x-cost-usd': (actualCostMicros / 1_000_000).toFixed(6),
           'x-saved-usd': savedUsd.toFixed(6),
         },
         body: responsePayload,
@@ -635,7 +645,7 @@ export class DecisionEngine {
         }
       }
       if (ctx.agent?.sessionId) {
-        void agentGuardService.incrementErrors(ctx.agent.sessionId)
+        void agentGuardService.incrementErrors(ctx.agent.sessionId, ctx.organization.id)
       }
 
       const routeAttempts: RouteAttempt[] = (providerErr as any)?.routeAttempts ?? []
@@ -649,7 +659,16 @@ export class DecisionEngine {
       const fallbackUpstream = fallbackUsed ? failedUpstream : undefined
 
       if (providerErr instanceof ProviderRequestError) {
-        await releaseReservation()
+        const usageEstimated = ['PROVIDER_UNAVAILABLE', 'PROVIDER_TIMEOUT', 'PROVIDER_NETWORK'].includes(providerErr.code)
+        if (usageEstimated) {
+          await budgetService.recordActualCost({
+            orgId: ctx.organization.id,
+            reservationId: ctx.requestId,
+            actualCostMicros: estimatedCostMicros,
+          })
+        } else {
+          await releaseReservation()
+        }
 
         const healthDegradingCodes = new Set([
           'PROVIDER_UNAVAILABLE', 'PROVIDER_TIMEOUT', 'PROVIDER_NETWORK', 'PROVIDER_ERROR'
@@ -704,11 +723,12 @@ export class DecisionEngine {
           normalizedErrorCategory: failedErrorCategory,
           inputTokens: 0,
           outputTokens: 0,
-          costMicros: 0,
+          costMicros: usageEstimated ? estimatedCostMicros : 0,
           durationMs: Date.now() - ctx.timestamps.receivedAt,
           cacheHit: false,
           streamed: ctx.request.payload.stream ?? false,
           statusCode,
+          usageEstimated,
           error: providerErr.code,
           callId: ctx.requestId,
         })
@@ -800,22 +820,15 @@ export class DecisionEngine {
     }
   }
 
-  private parseStreamingUsage(upstream: string, data: any): { inputTokens: number; outputTokens: number } | null {
+  private parseStreamingUsage(upstream: string, data: any): { inputTokens?: number; outputTokens?: number } | null {
     switch (upstream) {
       case 'anthropic-direct':
-        // Anthropic streaming: final message has type "message_delta" with usage
-        if (data.type === 'message_delta' && data.usage) {
-          return {
-            inputTokens: data.usage.input_tokens ?? 0,
-            outputTokens: data.usage.output_tokens ?? 0,
-          }
+        // Anthropic sends input usage in message_start and output usage in message_delta.
+        if (data.type === 'message_start' && data.message?.usage) {
+          return { inputTokens: data.message.usage.input_tokens ?? 0 }
         }
-        // Also check for message_stop with usage
-        if (data.type === 'message_stop' && data.usage) {
-          return {
-            inputTokens: data.usage.input_tokens ?? 0,
-            outputTokens: data.usage.output_tokens ?? 0,
-          }
+        if (data.type === 'message_delta' && data.usage) {
+          return { outputTokens: data.usage.output_tokens ?? 0 }
         }
         return null
       case 'openai-direct':

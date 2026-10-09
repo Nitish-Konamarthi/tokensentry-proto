@@ -406,6 +406,21 @@ paths:
         '200':
           description: Key revoked
 
+  /v1/invitations:
+    post:
+      summary: Create a team invitation
+      description: V1 does not configure an identity-provider invitation integration; this endpoint returns INVITATIONS_NOT_CONFIGURED and does not create a member.
+      tags: [Team]
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '501':
+          description: Invitations are not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /v1/analytics/spend:
     get:
       summary: Get spend analytics

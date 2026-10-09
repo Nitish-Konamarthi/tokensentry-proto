@@ -11,6 +11,7 @@ vi.mock('../../src/clients/valkey.js', () => ({
   ValkeyKeys: {
     budgetMonthly: (org: string, p: string) => `budget:monthly:${org}:${p}`,
     budgetDaily: (org: string, d: string) => `budget:daily:${org}:${d}`,
+    budgetReservation: (org: string, id: string) => `budget:reservation:${org}:${id}`,
     budgetTeam: (team: string, p: string) => `budget:team:${team}:${p}`,
     budgetUser: (user: string, p: string) => `budget:user:${user}:${p}`,
   },
@@ -52,6 +53,7 @@ describe('BudgetService', () => {
 
     const result = await budget.checkAndDeduct({
       orgId: 'org-1',
+      reservationId: 'call-1',
       teamId: 'team-1',
       userId: 'user-1',
       estimatedCostMicros: 100_000,
@@ -77,6 +79,7 @@ describe('BudgetService', () => {
 
     const result = await budget.checkAndDeduct({
       orgId: 'org-1',
+      reservationId: 'call-2',
       teamId: 'team-1',
       userId: 'user-1',
       estimatedCostMicros: 100_000,
@@ -92,6 +95,7 @@ describe('BudgetService', () => {
 
     const result = await budget.checkAndDeduct({
       orgId: 'org-1',
+      reservationId: 'call-3',
       teamId: 'team-1',
       userId: 'user-1',
       estimatedCostMicros: 100_000,

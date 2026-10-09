@@ -1,6 +1,6 @@
 import { logger } from '../lib/logger.js'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
-import { requireApiKey } from '../middleware/auth.js'
+import { requireApiKey, requireProxyScope } from '../middleware/auth.js'
 import { proxyRateLimit } from '../middleware/rate-limit.js'
 import { proxyRequestBodySchema } from '../validators/proxy.js'
 import { createRequestContext } from '../intelligence/request-context.js'
@@ -17,7 +17,7 @@ interface ProxyBody {
 
 export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post('/v1/proxy', {
-    preHandler: [requireApiKey, proxyRateLimit],
+    preHandler: [requireApiKey, requireProxyScope, proxyRateLimit],
     schema: { body: proxyRequestBodySchema },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     const callId = request.callId
@@ -25,8 +25,10 @@ export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
     const body = request.body as ProxyBody
     const authContext = request.authContext
 
-    const teamId = (request.headers['x-ts-team-id'] as string) || authContext.teamId
-    const userId = (request.headers['x-ts-user-id'] as string) || authContext.userId
+    // Identity and accounting attribution come from the authenticated key,
+    // never from caller-controlled headers.
+    const teamId = authContext.teamId
+    const userId = authContext.userId
     const agentId = (request.headers['x-ts-agent-id'] as string) || undefined
     const sessionId = (request.headers['x-ts-session-id'] as string) || undefined
 

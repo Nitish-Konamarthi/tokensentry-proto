@@ -1,15 +1,13 @@
 'use client'
 
-import { useState } from 'react'
 import { PageHeader } from '@/components/page-header'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { DataTable } from '@/components/data-table'
 import { Card, CardContent } from '@/components/ui/card'
-import { Trash2, UserPlus } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils'
-import { useMembers, useInviteMember, useRemoveMember } from '@/lib/hooks'
+import { useMembers, useRemoveMember } from '@/lib/hooks'
 
 const ROLE_BADGES: Record<string, 'default' | 'info' | 'secondary'> = {
   owner: 'default',
@@ -18,21 +16,8 @@ const ROLE_BADGES: Record<string, 'default' | 'info' | 'secondary'> = {
 }
 
 export default function TeamPage() {
-  const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState('member')
-
   const { data: members, isLoading } = useMembers()
-  const inviteMember = useInviteMember()
   const removeMember = useRemoveMember()
-
-  function handleInvite() {
-    if (!inviteEmail.includes('@')) return
-    inviteMember.mutate({ email: inviteEmail, role: inviteRole }, {
-      onSuccess: () => {
-        setInviteEmail('')
-      },
-    })
-  }
 
   function handleRemove(memberId: string) {
     if (confirm('Remove this member from the organization?')) {
@@ -44,40 +29,11 @@ export default function TeamPage() {
     <div className="animate-fade-in space-y-6">
       <PageHeader title="Team Management" description="Manage team members and roles" />
 
-      {/* Invite form */}
       <Card>
         <CardContent className="pt-6">
-          <div className="flex items-end gap-3">
-            <div className="flex-1 space-y-1">
-              <label className="text-sm font-medium">Invite by Email</label>
-              <Input
-                value={inviteEmail}
-                onChange={e => setInviteEmail(e.target.value)}
-                placeholder="colleague@company.com"
-                type="email"
-                onKeyDown={e => { if (e.key === 'Enter') handleInvite() }}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium">Role</label>
-              <select
-                className="h-10 rounded-md border bg-background px-3 text-sm"
-                value={inviteRole}
-                onChange={e => setInviteRole(e.target.value)}
-              >
-                <option value="member">Member</option>
-                <option value="admin">Admin</option>
-              </select>
-            </div>
-            <Button
-              variant="secondary"
-              onClick={handleInvite}
-              disabled={!inviteEmail.includes('@') || inviteMember.isPending}
-            >
-              <UserPlus className="h-4 w-4 mr-2" />
-              Send Invite
-            </Button>
-          </div>
+          <p className="text-sm text-muted-foreground">
+            Team invitations are not configured in V1. Members must be provisioned through the identity provider before they can be assigned to this organization.
+          </p>
         </CardContent>
       </Card>
 

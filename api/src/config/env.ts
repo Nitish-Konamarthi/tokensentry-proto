@@ -8,7 +8,6 @@ const envSchema = z.object({
 
   // Security
   API_KEY_PEPPER: z.string().min(32, 'API_KEY_PEPPER must be at least 32 chars'),
-  ENCRYPTION_KEY: z.string().min(32, 'ENCRYPTION_KEY must be at least 32 chars').optional(),
 
   // Database
   DATABASE_URL: z.string().url(),
@@ -32,11 +31,6 @@ const envSchema = z.object({
   OPENROUTER_HTTP_REFERER: z.string().optional(),
   OPENROUTER_X_TITLE: z.string().optional(),
 
-  // Catalog sources (optional)
-  MODELS_DEV_API_URL: z.string().url().optional(),
-  OPENCODE_API_URL: z.string().url().optional(),
-  ENABLE_FIXTURE_CATALOG: z.string().optional(),
-
   // Feature flags (V1 keeps core functions only)
   MAX_PROMPT_CHARS: z.coerce.number().int().positive().default(131072),
 
@@ -52,13 +46,12 @@ const envSchema = z.object({
   AGENT_GUARD_BLOCK_TTL_SECONDS: z.coerce.number().int().positive().default(120),
 
   // Trusted proxies
-  TRUSTED_PROXY_CIDRS: z.string().default('10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32'),
+  TRUSTED_PROXY_CIDRS: z.string().default('127.0.0.1/32,::1/128'),
 })
 
 // In test environment, use defaults for required fields if not set
 const testDefaults = process.env.NODE_ENV === 'test' ? {
   API_KEY_PEPPER: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-  ENCRYPTION_KEY: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   DATABASE_URL: 'postgresql://localhost:5432/tokensentry_test',
   VALKEY_URL: 'redis://localhost:6379/1',
   AUTH0_DOMAIN: 'test.tokensentry.ai',

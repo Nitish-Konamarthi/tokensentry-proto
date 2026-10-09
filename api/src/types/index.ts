@@ -5,6 +5,7 @@ export interface AuthContext {
   keyId: string
   role: 'owner' | 'admin' | 'member'
   plan: 'starter' | 'business' | 'enterprise'
+  scopes: string[]
 }
 
 export interface ProviderCost {

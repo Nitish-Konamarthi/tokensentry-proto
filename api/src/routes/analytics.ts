@@ -2,13 +2,18 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { requireApiKey } from '../middleware/auth.js'
 import { analyticsService } from '../services/analytics.js'
 import { usageLogRepo } from '../repositories/usage-log.js'
+import { z } from 'zod'
+
+const daysSchema = z.coerce.number().int().min(1).max(90)
 
 export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get('/v1/analytics/spend', { preHandler: requireApiKey }, async (request: FastifyRequest, reply: FastifyReply) => {
     const ctx = request.authContext
-    const days = parseInt((request.query as Record<string, string>).days ?? '30', 10)
+    const parsedDays = daysSchema.safeParse((request.query as Record<string, string>).days ?? '30')
+    if (!parsedDays.success) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'days must be an integer between 1 and 90' })
+    const days = parsedDays.data
     const realtime = await analyticsService.getRealtimeSpend(ctx.orgId)
-    const timeSeries = await usageLogRepo.getSpendTimeSeries(ctx.orgId, Math.min(days, 90))
+    const timeSeries = await usageLogRepo.getSpendTimeSeries(ctx.orgId, days)
 
     return {
       realtime: {
@@ -25,8 +30,9 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get('/v1/analytics/models', { preHandler: requireApiKey }, async (request: FastifyRequest, reply: FastifyReply) => {
     const ctx = request.authContext
-    const days = parseInt((request.query as Record<string, string>).days ?? '30', 10)
-    const distribution = await usageLogRepo.getModelDistribution(ctx.orgId, Math.min(days, 90))
+    const parsedDays = daysSchema.safeParse((request.query as Record<string, string>).days ?? '30')
+    if (!parsedDays.success) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'days must be an integer between 1 and 90' })
+    const distribution = await usageLogRepo.getModelDistribution(ctx.orgId, parsedDays.data)
 
     const totalCost = distribution.reduce((sum, r) => sum + (r.costMicros ?? 0), 0)
 

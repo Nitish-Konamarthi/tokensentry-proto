@@ -6,7 +6,6 @@ import { providerRouter } from '../../src/services/provider-router.js'
 import { routerService } from '../../src/services/router.js'
 import { modelCatalogService } from '../../src/services/model-catalog-service.js'
 import { canonicalizeModelId, getModelOwner } from '../../src/services/canonicalize.js'
-import { ModelsDevCatalogSource } from '../../src/catalog-sources/models-dev-source.js'
 
 // Mock external catalog source for testing registry independence
 class FakeExternalCatalogSource {

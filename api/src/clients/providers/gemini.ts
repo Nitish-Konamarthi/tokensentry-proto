@@ -1,5 +1,3 @@
-import { env } from '../../config/env.js'
-import { logger } from '../../lib/logger.js'
 import { fetchWithTimeoutAndRetry } from '../../lib/provider-fetch.js'
 
 const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
@@ -13,20 +11,23 @@ export async function callGemini(params: {
   temperature?: number
   stream?: boolean
 }): Promise<Response> {
-  const contents = params.messages.map(m => ({
+  const systemTexts = [params.system, ...params.messages.filter(m => m.role === 'system').map(m => m.content)]
+    .filter((text): text is string => Boolean(text?.trim()))
+  const contents = params.messages.filter(m => m.role !== 'system').map(m => ({
     role: m.role === 'assistant' ? 'model' : m.role,
     parts: [{ text: m.content }],
   }))
 
-  const url = `${BASE_URL}/models/${params.model}:${params.stream ? 'streamGenerateContent' : 'generateContent'}?key=${params.apiKey}`
+  const endpoint = `${BASE_URL}/models/${encodeURIComponent(params.model)}:${params.stream ? 'streamGenerateContent' : 'generateContent'}`
+  const url = params.stream ? `${endpoint}?alt=sse` : endpoint
 
   return fetchWithTimeoutAndRetry({
     url,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': params.apiKey },
     body: JSON.stringify({
       contents,
-      systemInstruction: params.system ? { parts: [{ text: params.system }] } : undefined,
+      systemInstruction: systemTexts.length > 0 ? { parts: systemTexts.map(text => ({ text })) } : undefined,
       generationConfig: {
         maxOutputTokens: params.maxTokens ?? 1024,
         temperature: params.temperature ?? 1,

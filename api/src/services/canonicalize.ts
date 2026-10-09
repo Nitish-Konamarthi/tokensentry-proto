@@ -27,6 +27,11 @@ export function canonicalizeModelId(modelId: string): string {
     }
   }
 
+  // Accept legacy short IDs only when they map to exactly one registry entry.
+  // Ambiguous or unknown names remain unchanged and are rejected downstream.
+  const matches = supported.filter(id => id.slice(id.indexOf('/') + 1).toLowerCase() === modelId.toLowerCase())
+  if (matches.length === 1) return matches[0]!
+
   // If no canonical form found, return as-is (will fail catalog validation if not present)
   return modelId
 }

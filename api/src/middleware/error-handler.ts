@@ -4,7 +4,16 @@ import { env } from '../config/env.js'
 
 export function registerErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler((err: FastifyError | Error, request, reply) => {
-    const statusCode = 'statusCode' in err ? (err as any).statusCode as number : 500
+    const statusCode = err.message === 'AGENT_GUARD_UNAVAILABLE'
+      ? 503
+      : 'statusCode' in err ? (err as any).statusCode as number : 500
+    if (err.message === 'AGENT_GUARD_UNAVAILABLE') {
+      return reply.code(503).send({
+        error: 'AGENT_GUARD_UNAVAILABLE',
+        message: 'Agent Guard state is unavailable; the request was not allowed to bypass enforcement.',
+        call_id: request.callId,
+      })
+    }
     const isProd = env.NODE_ENV === 'production'
 
     logger.error({

@@ -10,8 +10,8 @@ export const organizations = pgTable('organizations', {
   plan: text('plan').notNull().default('starter'),
   adminEmail: text('admin_email'),
   modelPolicy: jsonb('model_policy').notNull().default({
-    allowed_models: ['claude-haiku-4-5', 'claude-sonnet-4-6'],
-    max_model_tier: 'sonnet',
+    allowed_models: ['anthropic/claude-haiku-4-5', 'anthropic/claude-sonnet-4-6'],
+    max_model_tier: 'high',
     require_classification: true,
     allow_opus: false,
   }),
@@ -78,7 +78,7 @@ export const budgets = pgTable('budgets', {
 export const usageLogs = pgTable('usage_logs', {
   id: uuid('id').primaryKey().defaultRandom(),
   orgId: uuid('org_id').notNull().references(() => organizations.id),
-  teamId: uuid('team_id').notNull().references(() => teams.id),
+  teamId: uuid('team_id').references(() => teams.id),
   userId: uuid('user_id'),
   apiKeyId: uuid('api_key_id').references(() => apiKeys.id),
   callId: text('call_id').notNull(),
@@ -101,6 +101,7 @@ export const usageLogs = pgTable('usage_logs', {
   durationMs: integer('duration_ms').notNull().default(0),
   cacheHit: boolean('cache_hit').notNull().default(false),
   streamed: boolean('streamed').notNull().default(false),
+  usageEstimated: boolean('usage_estimated').notNull().default(false),
   statusCode: integer('status_code').notNull().default(200),
   error: text('error'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
@@ -165,7 +166,7 @@ export const agentSessions = pgTable('agent_sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
   orgId: uuid('org_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
   agentId: text('agent_id').notNull(),
-  sessionId: text('session_id').notNull().unique(),
+  sessionId: text('session_id').notNull(),
   status: text('status').notNull().default('active'),
   turnCount: integer('turn_count').notNull().default(0),
   tokensConsumed: integer('tokens_consumed').notNull().default(0),
@@ -178,6 +179,7 @@ export const agentSessions = pgTable('agent_sessions', {
 }, (t) => ({
   orgAgentIdx: index('agent_sessions_org_agent_idx').on(t.orgId, t.agentId),
   sessionStatusIdx: index('agent_sessions_status_idx').on(t.status),
+  orgSessionUnique: uniqueIndex('agent_sessions_org_session_unique').on(t.orgId, t.sessionId),
 }))
 
 export const agentGuardEvents = pgTable('agent_guard_events', {

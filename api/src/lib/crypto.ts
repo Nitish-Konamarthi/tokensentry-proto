@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual, createCipheriv, createDecipheriv } from 'crypto'
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto'
 import { env } from '../config/env.js'
 
 export function generateApiKey(): { rawKey: string; keyHash: string; keyPrefix: string } {
@@ -26,34 +26,6 @@ export function hashTurn(content: string): string {
 
 export function secureRandomHex(bytes: number): string {
   return randomBytes(bytes).toString('hex')
-}
-
-const ALGORITHM = 'aes-256-gcm'
-
-function getEncryptionKey(): Buffer {
-  const key = (env.ENCRYPTION_KEY || env.API_KEY_PEPPER).slice(0, 32).padEnd(32, 'x')
-  return Buffer.from(key)
-}
-
-export function encrypt(text: string): string {
-  const iv = randomBytes(16)
-  const cipher = createCipheriv(ALGORITHM, getEncryptionKey(), iv)
-  let encrypted = cipher.update(text, 'utf8', 'hex')
-  encrypted += cipher.final('hex')
-  const authTag = cipher.getAuthTag().toString('hex')
-  return `${iv.toString('hex')}:${authTag}:${encrypted}`
-}
-
-export function decrypt(encoded: string): string {
-  const [ivHex, authTagHex, encrypted] = encoded.split(':')
-  if (!ivHex || !authTagHex || !encrypted) throw new Error('Invalid encrypted format')
-  const iv = Buffer.from(ivHex, 'hex')
-  const authTag = Buffer.from(authTagHex, 'hex')
-  const decipher = createDecipheriv(ALGORITHM, getEncryptionKey(), iv)
-  decipher.setAuthTag(authTag)
-  let decrypted = decipher.update(encrypted, 'hex', 'utf8')
-  decrypted += decipher.final('utf8')
-  return decrypted
 }
 
 export function safeCompare(a: string, b: string): boolean {

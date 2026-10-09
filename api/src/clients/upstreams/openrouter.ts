@@ -51,6 +51,7 @@ export class OpenRouterUpstreamAdapter implements UpstreamAdapter {
         max_tokens: request.maxTokens ?? 1024,
         temperature: request.temperature ?? 1,
         stream: request.stream ?? false,
+        stream_options: request.stream ? { include_usage: true } : undefined,
       }),
     }, 'openrouter')
   }
