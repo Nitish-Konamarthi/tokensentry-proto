@@ -13,6 +13,7 @@ vi.mock('../../src/clients/valkey.js', () => ({
     hget: vi.fn(),
     hincrby: vi.fn(),
     hset: vi.fn(),
+    expire: vi.fn(),
     zcard: vi.fn().mockResolvedValue(3),
     zremrangebyscore: vi.fn(),
     zrangebyscore: vi.fn().mockResolvedValue(['100', '200', '300']),
@@ -106,5 +107,26 @@ describe('Agent Guard V1', () => {
     await agentGuardService.removeSession('sess-expire', 'org-1')
     const valkey = await import('../../src/clients/valkey.js')
     expect(vi.mocked(valkey.valkey.del)).toHaveBeenCalled()
+  })
+
+  it('bounds the Valkey session hash created when a session is blocked', async () => {
+    const valkey = await import('../../src/clients/valkey.js')
+    await agentGuardService.setBlocked('sess-blocked', 'org-1')
+
+    expect(valkey.valkey.expire).toHaveBeenCalledWith('agent:session:org-1:sess-blocked', 900)
+  })
+
+  it('keeps a provider success from becoming an API failure when post-call guard state is unavailable', async () => {
+    const valkey = await import('../../src/clients/valkey.js')
+    vi.mocked(valkey.valkey.eval).mockRejectedValueOnce(new Error('Valkey write failed'))
+    vi.mocked(valkey.valkey.hgetall).mockRejectedValueOnce(new Error('Valkey read failed'))
+
+    const stats = await agentGuardService.recordTurn('sess-post-call', {
+      sessionId: 'sess-post-call', agentId: 'agent-1', orgId: 'org-1',
+      inputTokens: 10, outputTokens: 20, toolCount: 0, provider: 'anthropic',
+      budgetUtilization: 0.1, timestamp: Date.now(),
+    }, [{ role: 'user', content: 'Hello' }])
+
+    expect(stats).toMatchObject({ requestCount: 0, inputTokens: 0, outputTokens: 0 })
   })
 })

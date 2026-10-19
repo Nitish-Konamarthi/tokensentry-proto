@@ -21,6 +21,10 @@ import {
 import type { DecisionResult } from './DecisionResult.js'
 import type { RequestContext } from '../request-context.js'
 
+function observeBackgroundFailure(task: Promise<unknown>, operation: string, callId: string): void {
+  void Promise.resolve(task).catch(err => logger.error({ err, callId, operation }, 'Background governance persistence failed'))
+}
+
 export class DecisionEngine {
   async decide(context: RequestContext): Promise<DecisionResult> {
     const normalized = normalizeRequestPayload({
@@ -51,18 +55,22 @@ export class DecisionEngine {
     }
 
     if (ctx.agent?.agentId && ctx.agent?.sessionId) {
-      const blocked = await agentGuardService.isBlocked(ctx.agent.sessionId, ctx.organization.id)
+      const terminated = await agentGuardRepo.isTerminated(ctx.organization.id, ctx.agent.sessionId)
+      const blocked = terminated || await agentGuardService.isBlocked(ctx.agent.sessionId, ctx.organization.id)
       if (blocked) {
-        // Ensure PostgreSQL session status reflects blocked state
-        void agentGuardRepo.upsertSession({
-          orgId: ctx.organization.id,
-          agentId: ctx.agent.agentId,
-          sessionId: ctx.agent.sessionId,
-          turnCount: 0,
-          tokensConsumed: 0,
-          riskScore: 0,
-          action: 'block',
-        })
+        if (!terminated) {
+          // Persist a Valkey-only block without overwriting existing session
+          // metrics on subsequent requests for a durable DB termination.
+          observeBackgroundFailure(agentGuardRepo.upsertSession({
+            orgId: ctx.organization.id,
+            agentId: ctx.agent.agentId,
+            sessionId: ctx.agent.sessionId,
+            turnCount: 0,
+            tokensConsumed: 0,
+            riskScore: 0,
+            action: 'block',
+          }), 'upsert blocked agent session', ctx.requestId)
+        }
 
         return {
           statusCode: 429,
@@ -271,7 +279,7 @@ export class DecisionEngine {
 
       if (guardResult.blocked) {
         await releaseReservation()
-        void agentGuardRepo.recordGuardEvent({
+        observeBackgroundFailure(agentGuardRepo.recordGuardEvent({
           orgId: ctx.organization.id,
           sessionId: ctx.agent.sessionId,
           agentId: ctx.agent.agentId,
@@ -279,10 +287,10 @@ export class DecisionEngine {
           action: 'block',
           factors: guardResult.factors,
           callId: ctx.requestId,
-        })
+        }), 'record blocked agent event', ctx.requestId)
 
         // Update PostgreSQL session status to terminated
-        void agentGuardRepo.upsertSession({
+        observeBackgroundFailure(agentGuardRepo.upsertSession({
           orgId: ctx.organization.id,
           agentId: ctx.agent.agentId,
           sessionId: ctx.agent.sessionId,
@@ -290,7 +298,7 @@ export class DecisionEngine {
           tokensConsumed: 0,
           riskScore: guardResult.score,
           action: 'block',
-        })
+        }), 'persist blocked agent session', ctx.requestId)
 
         return {
           statusCode: 429,
@@ -306,7 +314,7 @@ export class DecisionEngine {
       }
 
       if (guardResult.action === 'warn') {
-        void agentGuardRepo.recordGuardEvent({
+        observeBackgroundFailure(agentGuardRepo.recordGuardEvent({
           orgId: ctx.organization.id,
           sessionId: ctx.agent.sessionId,
           agentId: ctx.agent.agentId,
@@ -314,7 +322,7 @@ export class DecisionEngine {
           action: 'warn',
           factors: guardResult.factors,
           callId: ctx.requestId,
-        })
+        }), 'record warned agent event', ctx.requestId)
       }
     }
 
@@ -494,18 +502,22 @@ export class DecisionEngine {
               callId: ctx.requestId,
             })
 
-            if (ctx.agent?.agentId && ctx.agent?.sessionId && streamUsage) {
-              await agentGuardService.recordTurn(ctx.agent.sessionId, {
-                sessionId: ctx.agent.sessionId,
-                agentId: ctx.agent.agentId,
-                orgId: ctx.organization.id,
-                inputTokens: finalInputTokens,
-                outputTokens: finalOutputTokens,
-                toolCount: 0,
-                provider: finalRoute.upstreamId,
-                budgetUtilization: budgetCheck.utilization,
-                timestamp: Date.now(),
-              }, ctx.request.normalized?.messages ?? ctx.request.payload.messages)
+            if (ctx.agent?.agentId && ctx.agent?.sessionId) {
+              try {
+                await agentGuardService.recordTurn(ctx.agent.sessionId, {
+                  sessionId: ctx.agent.sessionId,
+                  agentId: ctx.agent.agentId,
+                  orgId: ctx.organization.id,
+                  inputTokens: finalInputTokens,
+                  outputTokens: finalOutputTokens,
+                  toolCount: 0,
+                  provider: finalRoute.upstreamId,
+                  budgetUtilization: budgetCheck.utilization,
+                  timestamp: Date.now(),
+                }, ctx.request.normalized?.messages ?? ctx.request.payload.messages)
+              } catch (err) {
+                logger.warn({ err, callId: ctx.requestId }, 'Agent Guard accounting failed after streamed provider success')
+              }
             }
           },
         }
@@ -525,17 +537,21 @@ export class DecisionEngine {
       })
 
       if (ctx.agent?.agentId && ctx.agent?.sessionId) {
-        await agentGuardService.recordTurn(ctx.agent.sessionId, {
-          sessionId: ctx.agent.sessionId,
-          agentId: ctx.agent.agentId,
-          orgId: ctx.organization.id,
-          inputTokens,
-          outputTokens: outTokens,
-          toolCount: 0,
-          provider: finalRoute.upstreamId,
-          budgetUtilization: budgetCheck.utilization,
-          timestamp: Date.now(),
-        }, ctx.request.normalized?.messages ?? ctx.request.payload.messages)
+        try {
+          await agentGuardService.recordTurn(ctx.agent.sessionId, {
+            sessionId: ctx.agent.sessionId,
+            agentId: ctx.agent.agentId,
+            orgId: ctx.organization.id,
+            inputTokens,
+            outputTokens: outTokens,
+            toolCount: 0,
+            provider: finalRoute.upstreamId,
+            budgetUtilization: budgetCheck.utilization,
+            timestamp: Date.now(),
+          }, ctx.request.normalized?.messages ?? ctx.request.payload.messages)
+        } catch (err) {
+          logger.warn({ err, callId: ctx.requestId }, 'Agent Guard accounting failed after provider success')
+        }
       }
 
       const savedUsd = routerService.calculateSavings(inputTokens, outTokens, ctx.request.payload.model, finalModel)
@@ -645,7 +661,11 @@ export class DecisionEngine {
         }
       }
       if (ctx.agent?.sessionId) {
-        void agentGuardService.incrementErrors(ctx.agent.sessionId, ctx.organization.id)
+        observeBackgroundFailure(
+          agentGuardService.incrementErrors(ctx.agent.sessionId, ctx.organization.id),
+          'increment agent error count',
+          ctx.requestId,
+        )
       }
 
       const routeAttempts: RouteAttempt[] = (providerErr as any)?.routeAttempts ?? []

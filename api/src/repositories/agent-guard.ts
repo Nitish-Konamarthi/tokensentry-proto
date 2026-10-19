@@ -103,6 +103,18 @@ export class AgentGuardRepository {
     return rows as unknown as AgentSessionRow[]
   }
 
+  async findSession(orgId: string, sessionId: string): Promise<AgentSessionRow | null> {
+    const rows = await db.select().from(agentSessions)
+      .where(and(eq(agentSessions.orgId, orgId), eq(agentSessions.sessionId, sessionId)))
+      .limit(1)
+    return (rows[0] as unknown as AgentSessionRow | undefined) ?? null
+  }
+
+  async isTerminated(orgId: string, sessionId: string): Promise<boolean> {
+    const session = await this.findSession(orgId, sessionId)
+    return session?.status === 'terminated'
+  }
+
   async getGuardEvents(orgId: string, limit = 100): Promise<GuardEventRow[]> {
     const rows = await db.select().from(agentGuardEvents)
       .where(eq(agentGuardEvents.orgId, orgId))

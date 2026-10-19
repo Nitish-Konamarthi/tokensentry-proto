@@ -242,6 +242,12 @@ export interface AgentStats {
   lastProvider: string | null
 }
 
+const EMPTY_AGENT_STATS: AgentStats = {
+  requestCount: 0, toolCount: 0, inputTokens: 0, outputTokens: 0,
+  retryCount: 0, providerSwitchCount: 0, recursiveDepth: 0,
+  consecutiveErrors: 0, lastProvider: null,
+}
+
 export interface AgentSession {
   agentId: string
   orgId: string
@@ -275,10 +281,18 @@ export class AgentGuardService {
         input.agentId, input.orgId, env.AGENT_GUARD_SESSION_TTL_SECONDS,
       )
     } catch (err) {
-      logger.warn({ err, sessionId }, 'Agent guard record turn failed — continuing')
+      logger.warn({ err, sessionId }, 'Agent guard record turn failed after provider execution')
     }
 
-    return this.getStats(sessionId, input.orgId)
+    // A provider response may already have been delivered/charged. A failure
+    // to read post-execution guard statistics must not turn that success into
+    // an API error that could cause the client to retry the provider call.
+    try {
+      return await this.getStats(sessionId, input.orgId)
+    } catch (err) {
+      logger.warn({ err, sessionId }, 'Agent guard stats unavailable after provider execution')
+      return { ...EMPTY_AGENT_STATS }
+    }
   }
 
   async getSession(sessionId: string, orgId: string): Promise<AgentSession | null> {
@@ -299,15 +313,9 @@ export class AgentGuardService {
   }
 
   async getStats(sessionId: string, orgId: string): Promise<AgentStats> {
-    const empty: AgentStats = {
-      requestCount: 0, toolCount: 0, inputTokens: 0, outputTokens: 0,
-      retryCount: 0, providerSwitchCount: 0, recursiveDepth: 0,
-      consecutiveErrors: 0, lastProvider: null,
-    }
-
     try {
       const data = await valkey.hgetall(ValkeyKeys.agentStats(orgId, sessionId))
-      if (!data || Object.keys(data).length === 0) return empty
+      if (!data || Object.keys(data).length === 0) return { ...EMPTY_AGENT_STATS }
       return {
         requestCount: parseInt(data['request_count'] ?? '0', 10),
         toolCount: parseInt(data['tool_count'] ?? '0', 10),
@@ -383,7 +391,11 @@ export class AgentGuardService {
   async setBlocked(sessionId: string, orgId: string, ttlSeconds = 120): Promise<void> {
     try {
       await valkey.setex(ValkeyKeys.agentBlocked(orgId, sessionId), env.AGENT_GUARD_BLOCK_TTL_SECONDS || ttlSeconds, '1')
-      await valkey.hset(ValkeyKeys.agentSession(orgId, sessionId), 'status', 'terminated')
+      const sessionKey = ValkeyKeys.agentSession(orgId, sessionId)
+      await valkey.hset(sessionKey, 'status', 'terminated')
+      // setBlocked can run for a PostgreSQL-only session, creating this hash.
+      // Give it the same bounded lifetime as other guard session state.
+      await valkey.expire(sessionKey, env.AGENT_GUARD_SESSION_TTL_SECONDS)
     } catch (err) {
       logger.error({ err, orgId, sessionId }, 'Agent guard could not persist block state')
       throw new Error('AGENT_GUARD_UNAVAILABLE')

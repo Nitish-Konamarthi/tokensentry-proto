@@ -49,7 +49,7 @@ vi.mock('../../src/services/agent-guard.js', () => ({
 }))
 
 vi.mock('../../src/repositories/agent-guard.js', () => ({
-  agentGuardRepo: { recordGuardEvent: vi.fn(), upsertSession: vi.fn() },
+  agentGuardRepo: { recordGuardEvent: vi.fn(), upsertSession: vi.fn(), isTerminated: vi.fn() },
 }))
 
 vi.mock('../../src/repositories/org.js', () => ({
@@ -66,6 +66,7 @@ import { budgetService } from '../../src/services/budget.js'
 import { routerService } from '../../src/services/router.js'
 import { UpstreamUnavailableError, providerRouter } from '../../src/services/provider-router.js'
 import { agentGuardService } from '../../src/services/agent-guard.js'
+import { agentGuardRepo } from '../../src/repositories/agent-guard.js'
 import { orgRepo } from '../../src/repositories/org.js'
 import { getProviderApiKey } from '../../src/services/provider-credentials.js'
 
@@ -79,7 +80,7 @@ const approvedBudget = {
   should_alert_95: false,
 }
 
-function requestContext(agent = false) {
+function requestContext(agent = false, stream = false) {
   return createRequestContext({
     requestId: 'call-123',
     apiKey: 'key-123',
@@ -91,6 +92,7 @@ function requestContext(agent = false) {
       model: 'anthropic/claude-sonnet-4-6',
       messages: [{ role: 'user', content: 'Hello' }],
       max_tokens: 20,
+      stream,
     },
     receivedAt: Date.now(),
     agentId: agent ? 'agent-123' : undefined,
@@ -112,6 +114,9 @@ describe('DecisionEngine V1 reservation lifecycle', () => {
     })
     vi.mocked(orgRepo.findById).mockResolvedValue(null)
     vi.mocked(agentGuardService.isBlocked).mockResolvedValue(false)
+    vi.mocked(agentGuardRepo.isTerminated).mockResolvedValue(false)
+    vi.mocked(agentGuardRepo.upsertSession).mockResolvedValue({} as any)
+    vi.mocked(agentGuardRepo.recordGuardEvent).mockResolvedValue({} as any)
     vi.mocked(agentGuardService.evaluate).mockResolvedValue({
       blocked: false,
       action: 'allow',
@@ -119,6 +124,18 @@ describe('DecisionEngine V1 reservation lifecycle', () => {
       factors: [],
     })
     vi.mocked(providerRouter.resolveUpstream).mockResolvedValue({ upstreamId: 'anthropic-direct', upstreamModelId: 'claude-sonnet-4-6' })
+  })
+
+  it('blocks a persistently terminated session even after its Valkey block key expires', async () => {
+    vi.mocked(agentGuardRepo.isTerminated).mockResolvedValue(true)
+
+    const result = await new DecisionEngine().decide(requestContext(true))
+
+    expect(result).toMatchObject({ statusCode: 429, body: { error: 'AGENT_BLOCKED' } })
+    expect(agentGuardService.isBlocked).not.toHaveBeenCalled()
+    expect(budgetService.checkAndDeduct).not.toHaveBeenCalled()
+    expect(providerRouter.routeWithFallback).not.toHaveBeenCalled()
+    expect(agentGuardRepo.upsertSession).not.toHaveBeenCalled()
   })
 
   it('releases a reservation when the selected upstream has no configured credential', async () => {
@@ -178,6 +195,7 @@ describe('DecisionEngine V1 reservation lifecycle', () => {
   })
 
   it('returns a safe upstream-unavailable error and releases its reservation', async () => {
+    vi.mocked(agentGuardService.incrementErrors).mockRejectedValueOnce(new Error('Valkey unavailable'))
     vi.mocked(getProviderApiKey).mockResolvedValue('provider-key')
     const error = new UpstreamUnavailableError('anthropic-direct')
     ;(error as any).routeAttempts = [{
@@ -191,7 +209,7 @@ describe('DecisionEngine V1 reservation lifecycle', () => {
     }]
     vi.mocked(providerRouter.routeWithFallback).mockRejectedValue(error)
 
-    const result = await new DecisionEngine().decide(requestContext())
+    const result = await new DecisionEngine().decide(requestContext(true))
 
     expect(result).toMatchObject({
       statusCode: 502,
@@ -205,7 +223,8 @@ describe('DecisionEngine V1 reservation lifecycle', () => {
     expect(budgetService.releaseReservation).toHaveBeenCalledTimes(2)
   })
 
-  it('reconciles the reserved budget with the full actual provider cost', async () => {
+  it('preserves provider success and reconciles cost if post-call guard accounting fails', async () => {
+    vi.mocked(agentGuardService.recordTurn).mockRejectedValueOnce(new Error('Valkey unavailable'))
     vi.mocked(providerRouter.routeWithFallback).mockResolvedValue({
       response: new Response(JSON.stringify({
         content: [{ type: 'text', text: 'ok' }],
@@ -216,10 +235,34 @@ describe('DecisionEngine V1 reservation lifecycle', () => {
       fallbackUsed: false,
     })
 
-    const result = await new DecisionEngine().decide(requestContext())
+    const result = await new DecisionEngine().decide(requestContext(true))
     const reconciledCost = vi.mocked(budgetService.recordActualCost).mock.calls[0]?.[0].actualCostMicros
 
     expect(result.statusCode).toBe(200)
     expect(reconciledCost).toBe(Number(result.headers?.['x-cost-usd']) * 1_000_000)
+  })
+
+  it('records an Agent Guard turn for a stream when provider usage is absent', async () => {
+    vi.mocked(providerRouter.routeWithFallback).mockResolvedValue({
+      response: new Response('data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } }),
+      finalRoute: { upstreamId: 'anthropic-direct', upstreamModelId: 'claude-sonnet-4-6', priority: 1 },
+      attempts: [{ attemptNumber: 1, upstream: 'anthropic-direct', upstreamModelId: 'claude-sonnet-4-6', routePriority: 1, success: true }],
+      fallbackUsed: false,
+    })
+
+    const result = await new DecisionEngine().decide(requestContext(true, true))
+    const writes: string[] = []
+    await result.streamHandler?.({
+      raw: {
+        writeHead: vi.fn(),
+        write: vi.fn((chunk: string) => writes.push(chunk)),
+        end: vi.fn(),
+      },
+    } as any)
+
+    expect(writes.join('')).toContain('[DONE]')
+    expect(agentGuardService.recordTurn).toHaveBeenCalledWith(
+      'session-123', expect.objectContaining({ inputTokens: 100, outputTokens: 20 }), expect.any(Array),
+    )
   })
 })
