@@ -5,14 +5,44 @@ on:
     branches: [main]
     paths:
       - 'api/**'
+      - 'dashboard/**'
+      - 'website/**'
       - 'shared-types/**'
+      - '.github/workflows/**'
   pull_request:
     branches: [main]
     paths:
       - 'api/**'
+      - 'dashboard/**'
+      - 'website/**'
       - 'shared-types/**'
+      - '.github/workflows/**'
 
 jobs:
+  packages:
+    name: Build ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: [api, dashboard, website, shared-types]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ matrix.package }}/package-lock.json
+
+      - run: npm ci
+        working-directory: ${{ matrix.package }}
+
+      - run: npm run typecheck
+        working-directory: ${{ matrix.package }}
+
+      - run: npm run build
+        working-directory: ${{ matrix.package }}
+
   test:
     name: Typecheck & Test
     runs-on: ubuntu-latest
@@ -54,7 +84,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: api/package-lock.json
 
-      - run: npm ci --frozen-lockfile
+      - run: npm ci
         working-directory: api
 
       - run: npm run typecheck
@@ -66,5 +96,3 @@ jobs:
           DATABASE_URL: postgresql://tokensentry:tokensentry@localhost:5432/tokensentry
           VALKEY_URL: redis://localhost:6379
           API_KEY_PEPPER: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-          AUTH0_DOMAIN: test.auth0.com
-          AUTH0_AUDIENCE: https://api.tokensentry.ai

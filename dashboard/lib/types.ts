@@ -1,16 +1,6 @@
-export interface RealtimeMetrics {
-  today_usd: number
-  this_month_usd: number
-  monthly_limit_usd: number
-  utilization: number
-  budget_remaining_usd: number
-  status: 'healthy' | 'warning' | 'critical'
-}
-
 export interface DailyRow {
   date: string
   spend_usd: number
-  saved_usd: number
   calls: number
 }
 
@@ -25,9 +15,6 @@ export interface BudgetPolicy {
   id: string
   monthly_limit_usd: number
   daily_limit_usd: number | null
-  alert_at_80: boolean
-  alert_at_95: boolean
-  on_exhaustion: string
 }
 
 export interface ApiKey {
@@ -59,24 +46,17 @@ export interface AuditLogEntry {
   created_at: string
 }
 
-export interface ProviderHealth {
-  provider: string
-  status: 'healthy' | 'degraded' | 'down'
-  last_checked_at: string
-  avg_latency_ms: number | null
-  error_count: number
-}
-
 export interface AgentSession {
   id: string
-  agent_id: string
-  status: 'active' | 'completed' | 'terminated'
-  turn_count: number
-  tokens_consumed: number
-  token_budget: number
-  loop_detected: boolean
-  started_at: string
-  terminated_at: string | null
+  agentId: string
+  status: string
+  turnCount: number
+  tokensConsumed: number
+  tokenBudget: number
+  loopDetected: boolean
+  riskScore: number
+  startedAt: string
+  terminatedAt: string | null
 }
 
 export interface OrgSettings {
@@ -86,6 +66,5 @@ export interface OrgSettings {
   model_policy: {
     allowed_models: string[]
     max_model_tier: string
-    require_classification: boolean
   }
 }

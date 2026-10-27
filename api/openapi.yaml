@@ -1,15 +1,10 @@
 openapi: 3.0.3
 info:
   title: TokenSentry API
-  description: Enterprise AI Token Governance — Drop-in proxy for Anthropic, OpenAI, Gemini, and Groq
+  description: TokenSentry V1 gateway API. This specification covers core health, proxy, budget, API-key, and analytics routes; it does not yet document every registered administration route.
   version: 1.0.0
-  contact:
-    name: TokenSentry Support
-    email: support@tokensentry.ai
 
 servers:
-  - url: https://api.tokensentry.ai
-    description: Production
   - url: http://localhost:3000
     description: Local development
 
@@ -27,11 +22,13 @@ components:
       properties:
         model:
           type: string
-          example: claude-sonnet-4-6
+          example: anthropic/claude-sonnet-4-6
         messages:
           type: array
+          minItems: 1
           items:
             type: object
+            required: [role, content]
             properties:
               role:
                 type: string
@@ -46,6 +43,10 @@ components:
           type: integer
           minimum: 1
           maximum: 200000
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
 
     ProxyResponse:
       type: object
@@ -88,8 +89,7 @@ components:
               type: number
             saved_usd:
               type: number
-            cache_hit:
-              type: boolean
+              description: Estimated difference between catalog costs for the requested and selected models; not a provider-billed savings amount.
 
     BudgetPolicy:
       type: object
@@ -101,13 +101,6 @@ components:
         daily_limit_usd:
           type: number
           nullable: true
-        alert_at_80:
-          type: boolean
-        alert_at_95:
-          type: boolean
-        on_exhaustion:
-          type: string
-          enum: [block, downgrade, warn]
 
     ApiKey:
       type: object
@@ -137,7 +130,7 @@ components:
       properties:
         error:
           type: string
-          enum: [UNAUTHORIZED, VALIDATION_ERROR, BUDGET_EXCEEDED, BUDGET_CHECK_UNAVAILABLE, UNSUPPORTED_MODEL, PROVIDER_UNAVAILABLE, PROVIDER_AUTH, PROVIDER_RATE_LIMIT, PROVIDER_BAD_REQUEST, PROVIDER_TIMEOUT, PROVIDER_NETWORK, PROVIDER_ERROR, AGENT_BLOCKED, CONFIG_ERROR, INTERNAL_ERROR, NOT_FOUND, RATE_LIMITED, PROXY_ERROR]
+          enum: [UNAUTHORIZED, VALIDATION_ERROR, BUDGET_EXCEEDED, BUDGET_CHECK_UNAVAILABLE, UNSUPPORTED_MODEL, UNKNOWN_PRICING, MODEL_NOT_ALLOWED, AGENT_BLOCKED, AGENT_GUARD_UNAVAILABLE, PROVIDER_UNAVAILABLE, PROVIDER_AUTH, PROVIDER_RATE_LIMIT, PROVIDER_BAD_REQUEST, PROVIDER_TIMEOUT, PROVIDER_NETWORK, PROVIDER_ERROR, CONFIG_ERROR, INTERNAL_ERROR, NOT_FOUND, RATE_LIMITED, PROXY_ERROR]
         message:
           type: string
         call_id:
@@ -206,7 +199,7 @@ paths:
       summary: Proxy an AI call
       description: >
         Routes an AI provider call through TokenSentry's governance pipeline.
-        Authenticated via API key. Supports Anthropic, OpenAI, Gemini, and Groq.
+        Authenticated via TokenSentry API key. The accepted request body is a supported subset of the OpenAI chat-completions shape. Model and provider support are determined by the checked-in catalog and configured credentials.
       tags: [Proxy]
       security:
         - ApiKeyAuth: []
@@ -329,12 +322,6 @@ paths:
                   type: number
                 daily_limit_usd:
                   type: number
-                alert_at_80:
-                  type: boolean
-                alert_at_95:
-                  type: boolean
-                on_exhaustion:
-                  type: string
       responses:
         '200':
           description: Policy updated

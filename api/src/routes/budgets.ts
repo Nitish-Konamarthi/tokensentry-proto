@@ -9,9 +9,6 @@ import { z } from 'zod'
 const budgetBodySchema = z.object({
   monthly_limit_usd: z.number().finite().positive().max(1_000_000_000),
   daily_limit_usd: z.number().finite().positive().max(1_000_000_000).optional(),
-  alert_at_80: z.boolean().optional(),
-  alert_at_95: z.boolean().optional(),
-  on_exhaustion: z.literal('block').optional(),
 }).strict().refine(value => value.daily_limit_usd === undefined || value.daily_limit_usd <= value.monthly_limit_usd, {
   message: 'daily_limit_usd must not exceed monthly_limit_usd',
   path: ['daily_limit_usd'],
@@ -34,9 +31,6 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
         id: policy.id,
         monthly_limit_usd: parseFloat(policy.monthlyLimitMicros) / 1_000_000,
         daily_limit_usd: policy.dailyLimitMicros ? parseFloat(policy.dailyLimitMicros) / 1_000_000 : null,
-        alert_at_80: policy.alertAt80Pct,
-        alert_at_95: policy.alertAt95Pct,
-        on_exhaustion: policy.onExhaustion,
       } : null,
       current: {
         today_usd: realtime.today,
@@ -58,9 +52,6 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       orgId: ctx.orgId,
       monthlyLimitMicros: String(Math.floor(body.monthly_limit_usd * 1_000_000)),
       dailyLimitMicros: body.daily_limit_usd === undefined ? undefined : String(Math.floor(body.daily_limit_usd * 1_000_000)),
-      alertAt80Pct: body.alert_at_80,
-      alertAt95Pct: body.alert_at_95,
-      onExhaustion: body.on_exhaustion ?? 'block',
     })
 
     return { success: true, policy_id: policy.id }

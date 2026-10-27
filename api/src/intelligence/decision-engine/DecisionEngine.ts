@@ -572,7 +572,6 @@ export class DecisionEngine {
           call_id: ctx.requestId,
           cost_usd: actualCostMicros / 1_000_000,
           saved_usd: savedUsd,
-          cache_hit: false,
         },
       }
 

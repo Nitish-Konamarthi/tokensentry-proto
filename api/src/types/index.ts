@@ -4,7 +4,7 @@ export interface AuthContext {
   userId: string
   keyId: string
   role: 'owner' | 'admin' | 'member'
-  plan: 'starter' | 'business' | 'enterprise'
+  plan: string
   scopes: string[]
 }
 
@@ -50,7 +50,6 @@ export interface ProxyResponse {
     call_id: string
     cost_usd: number
     saved_usd: number
-    cache_hit: boolean
   }
 }
 
@@ -60,8 +59,6 @@ export interface BudgetResult {
   current_spend_usd: number
   limit_usd: number
   utilization: number
-  should_alert_80: boolean
-  should_alert_95: boolean
   fallback_model?: string
 }
 

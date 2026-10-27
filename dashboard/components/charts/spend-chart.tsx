@@ -44,10 +44,6 @@ export function SpendChart({ data, loading }: SpendChartProps) {
             <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
             <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
           </linearGradient>
-          <linearGradient id="gradSaved" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-            <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-          </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
         <XAxis
@@ -59,7 +55,6 @@ export function SpendChart({ data, loading }: SpendChartProps) {
         <YAxis tick={{ fontSize: 11, fill: '#475569' }} tickLine={false} axisLine={false} tickFormatter={v => `$${v}`} />
         <Tooltip content={<CustomTooltip />} />
         <Area type="monotone" dataKey="spend_usd" name="Spend" stroke="#6366f1" fill="url(#gradSpend)" strokeWidth={2} dot={false} />
-        <Area type="monotone" dataKey="saved_usd" name="Saved" stroke="#10b981" fill="url(#gradSaved)" strokeWidth={2} dot={false} />
       </AreaChart>
     </ResponsiveContainer>
   )

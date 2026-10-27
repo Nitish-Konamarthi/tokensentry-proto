@@ -45,7 +45,7 @@ EXPOSE 3000
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Health check for Kubernetes readiness probe
+# Health check for container orchestration and local Compose
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/health/live', r => r.statusCode === 200 ? process.exit(0) : process.exit(1))"
 

@@ -1,6 +1,6 @@
 import type {
-  RealtimeMetrics, DailyRow, ModelRow, BudgetPolicy,
-  ApiKey, TeamMember, AuditLogEntry, ProviderHealth, AgentSession, OrgSettings,
+  DailyRow, ModelRow, BudgetPolicy,
+  ApiKey, TeamMember, AuditLogEntry, AgentSession, OrgSettings,
 } from './types'
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -22,9 +22,6 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  // ── Realtime ──
-  getRealtime: () => request<RealtimeMetrics>('/v1/budgets'),
-
   // ── Analytics ──
   getSpendTimeSeries: (days: number) =>
     request<{ time_series: DailyRow[] }>(`/v1/analytics/spend?days=${days}`),
@@ -57,8 +54,7 @@ export const api = {
     request<{ success: boolean; revoked_at: string }>(`/v1/api-keys/${id}`, { method: 'DELETE' }),
 
   // ── Agent Guard ──
-  getAgentSessions: (orgId: string) =>
-    request<AgentSession[]>(`/v1/agents?org_id=${orgId}`),
+  getAgentSessions: () => request<AgentSession[]>('/v1/agents'),
 
   // ── Audit Log ──
   getAuditLogs: (orgId: string, limit = 50, action?: string) => {

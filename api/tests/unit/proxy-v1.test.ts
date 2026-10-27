@@ -30,7 +30,6 @@ vi.mock('../../src/repositories/budget.js', () => ({
     findOrgPolicy: vi.fn().mockResolvedValue({
       id: 'test-id', orgId: 'org-1', teamId: null, userId: null,
       monthlyLimitMicros: '500000000', dailyLimitMicros: null,
-      alertAt80Pct: true, alertAt95Pct: true, onExhaustion: 'block',
     }),
   },
 }))

@@ -1,5 +1,5 @@
 ---
-description: Review without modifying code. Check security-sensitive changes (auth, budget, agent-guard, rate limiter) first.
+description: Review without modifying code. Verify behavior against current V1 source, tests, and API contracts.
 mode: subagent
 model: openrouter/free
 tools:

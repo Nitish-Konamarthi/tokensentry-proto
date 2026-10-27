@@ -3,7 +3,7 @@
 
 set -e
 
-BACKUP_DIR="/var/lib/postgresql/data/backups"
+BACKUP_DIR="/backups"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 FILENAME="tokensentry_${TIMESTAMP}.sql.gz"
 RETENTION_DAYS=7

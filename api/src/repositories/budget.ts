@@ -9,9 +9,6 @@ export interface BudgetRow {
   userId: string | null
   monthlyLimitMicros: string
   dailyLimitMicros: string | null
-  alertAt80Pct: boolean | null
-  alertAt95Pct: boolean | null
-  onExhaustion: string | null
 }
 
 export class BudgetRepository {
@@ -43,9 +40,6 @@ export class BudgetRepository {
     userId?: string
     monthlyLimitMicros: string
     dailyLimitMicros?: string
-    alertAt80Pct?: boolean
-    alertAt95Pct?: boolean
-    onExhaustion?: string
   }) {
     const existing = await db.select({ id: budgets.id }).from(budgets)
       .where(and(
@@ -60,9 +54,6 @@ export class BudgetRepository {
       dailyLimitMicros: data.dailyLimitMicros ?? null,
       updatedAt: new Date(),
     }
-    if (data.alertAt80Pct !== undefined) values.alertAt80Pct = data.alertAt80Pct
-    if (data.alertAt95Pct !== undefined) values.alertAt95Pct = data.alertAt95Pct
-    if (data.onExhaustion !== undefined) values.onExhaustion = data.onExhaustion
 
     if (existing[0]) {
       const rows = await db.update(budgets)

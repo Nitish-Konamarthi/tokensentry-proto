@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import { PageHeader } from '@/components/page-header'
 import { MetricCard } from '@/components/metric-card'
 import { Badge } from '@/components/ui/badge'
@@ -8,7 +8,7 @@ import { DataTable } from '@/components/data-table'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { formatDateTime, formatCompact } from '@/lib/utils'
 import { useAgentSessions } from '@/lib/hooks'
-import { Bot, AlertTriangle, Activity, Shield, XCircle } from 'lucide-react'
+import { Bot, AlertTriangle, Activity, Shield } from 'lucide-react'
 
 const STATUS_BADGES: Record<string, 'success' | 'destructive' | 'warning' | 'info'> = {
   active: 'success',
@@ -18,30 +18,20 @@ const STATUS_BADGES: Record<string, 'success' | 'destructive' | 'warning' | 'inf
 }
 
 export default function AgentGuardPage() {
-  const [orgId] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('ts_org_id') ?? 'default'
-    }
-    return 'default'
-  })
-
-  const { data: sessions, isLoading } = useAgentSessions(orgId)
+  const { data: sessions, isLoading } = useAgentSessions()
 
   const metrics = useMemo(() => {
     const list = sessions ?? []
     const active = list.filter(s => s.status === 'active').length
     const total = list.length
-    const looped = list.filter(s => s.loop_detected).length
-    const tokensSaved = list
-      .filter(s => s.loop_detected)
-      .reduce((sum, s) => sum + s.token_budget - s.tokens_consumed, 0)
-    return { active, total, looped, tokensSaved }
+    const flagged = list.filter(s => s.loopDetected).length
+    return { active, total, flagged }
   }, [sessions])
 
   if (isLoading) {
     return (
       <div className="animate-fade-in space-y-6">
-        <PageHeader title="Agent Guard" description="Monitor and protect against runaway AI agents" />
+        <PageHeader title="Agent Guard" description="Review gateway-observed agent sessions and risk flags" />
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
           {[1, 2, 3, 4].map(i => (
             <div key={i} className="h-24 rounded-lg bg-muted animate-pulse" />
@@ -54,14 +44,14 @@ export default function AgentGuardPage() {
 
   return (
     <div className="animate-fade-in space-y-6">
-      <PageHeader title="Agent Guard" description="Monitor and protect against runaway AI agents">
-        {metrics.looped > 0 && (
+      <PageHeader title="Agent Guard" description="Review gateway-observed agent sessions and risk flags">
+        {metrics.flagged > 0 && (
           <Badge variant="warning">
             <AlertTriangle className="h-3 w-3 mr-1" />
-            {metrics.looped} Loop{metrics.looped > 1 ? 's' : ''} Detected
+            {metrics.flagged} Flagged Session{metrics.flagged > 1 ? 's' : ''}
           </Badge>
         )}
-        {metrics.looped === 0 && (
+        {metrics.flagged === 0 && (
           <Badge variant="success">
             <Shield className="h-3 w-3 mr-1" />
             All Clear
@@ -69,22 +59,15 @@ export default function AgentGuardPage() {
         )}
       </PageHeader>
 
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <MetricCard title="Active Agents" value={metrics.active.toString()} icon={<Activity className="h-4 w-4" />} />
         <MetricCard title="Total Sessions" value={metrics.total.toString()} icon={<Bot className="h-4 w-4" />} />
         <MetricCard
-          title="Loops Detected"
-          value={metrics.looped.toString()}
+          title="Flagged Sessions"
+          value={metrics.flagged.toString()}
           icon={<AlertTriangle className="h-4 w-4" />}
-          trend={metrics.looped > 0 ? 'up' : undefined}
-          trendLabel={metrics.looped > 0 ? 'requires attention' : undefined}
-        />
-        <MetricCard
-          title="Tokens Saved"
-          value={metrics.tokensSaved > 0 ? formatCompact(metrics.tokensSaved) : '0'}
-          subtitle="by early termination"
-          icon={<Shield className="h-4 w-4" />}
-          trend={metrics.tokensSaved > 0 ? 'up' : undefined}
+          trend={metrics.flagged > 0 ? 'up' : undefined}
+          trendLabel={metrics.flagged > 0 ? 'requires attention' : undefined}
         />
       </div>
 
@@ -101,7 +84,7 @@ export default function AgentGuardPage() {
                   <div className="flex items-center gap-2">
                     <Bot className="h-3.5 w-3.5 text-muted-foreground" />
                     <span className="font-medium">{r.agentId}</span>
-                    {r.loop_detected && <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />}
+                    {r.loopDetected && <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />}
                   </div>
                 ),
               },
@@ -112,7 +95,7 @@ export default function AgentGuardPage() {
                 ),
               },
               {
-                key: 'turnCount', header: 'Turns',
+                key: 'turnCount', header: 'Requests',
                 cell: (r: any) => formatCompact(r.turnCount),
               },
               {
@@ -122,8 +105,8 @@ export default function AgentGuardPage() {
                     <span>{formatCompact(r.tokensConsumed)}</span>
                     <div className="h-1.5 w-20 rounded-full bg-muted overflow-hidden">
                       <div
-                        className={`h-full rounded-full ${(r.tokensConsumed / r.tokenBudget) > 0.8 ? 'bg-amber-500' : 'bg-primary'}`}
-                        style={{ width: `${Math.min((r.tokensConsumed / r.tokenBudget) * 100, 100)}%` }}
+                        className={`h-full rounded-full ${(r.tokensConsumed / Math.max(r.tokenBudget, 1)) > 0.8 ? 'bg-amber-500' : 'bg-primary'}`}
+                        style={{ width: `${Math.min((r.tokensConsumed / Math.max(r.tokenBudget, 1)) * 100, 100)}%` }}
                       />
                     </div>
                   </div>

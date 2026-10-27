@@ -44,7 +44,6 @@ export const ValkeyKeys = {
   budgetUser: (userId: string, yyyyMm: string) => `budget:user:${userId}:${yyyyMm}`,
   rateLimit: (key: string, windowSec: number) => `ratelimit:${key}:${Math.floor(Date.now() / (windowSec * 1000))}`,
   authKey: (keyHash: string) => `auth:key:${keyHash}`,
-  authJwtBlacklist: (jti: string) => `auth:blacklist:${jti}`,
   providerHealth: (provider: string) => `provider:health:${provider}`,
   realtimeSpend: (orgId: string, date: string) => `realtime:spend:${orgId}:${date}`,
   agentSession: (orgId: string, sessionId: string) => `agent:session:${orgId}:${sessionId}`,

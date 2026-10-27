@@ -1,5 +1,5 @@
 ---
-description: Analyze before implementing. Read PROJECT_STATE.md, analysis.md, and relevant package docs first.
+description: Analyze before implementing. Read AGENTS.md, the relevant source, and canonical docs first.
 mode: subagent
 model: openrouter/free
 tools:

@@ -4,6 +4,7 @@
 
 volumes:
   pgdata:
+  pgbackup_data:
   valkey_data:
   certbot_www:
   certbot_conf:
@@ -86,8 +87,6 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
-      AUTH0_DOMAIN: ${AUTH0_DOMAIN}
-      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
       SENTRY_DSN: ${SENTRY_DSN}
     depends_on:
       postgres:
@@ -132,7 +131,7 @@ services:
     networks:
       - internal
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/', r => { process.exit(r.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/login', r => { process.exit(r.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -218,12 +217,11 @@ services:
       PGDATABASE: ${PG_DATABASE:-tokensentry}
       PGHOST: postgres
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgbackup_data:/backups
       - ./scripts/backup.sh:/usr/local/bin/backup.sh:ro
     entrypoint: ["/bin/sh", "-c"]
     command: |
       "
-      apk add --no-cache curl
       while :; do
         /usr/local/bin/backup.sh
         sleep 86400

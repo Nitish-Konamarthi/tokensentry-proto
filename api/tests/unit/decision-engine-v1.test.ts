@@ -76,8 +76,6 @@ const approvedBudget = {
   current_spend_usd: 0,
   limit_usd: 500,
   utilization: 0,
-  should_alert_80: false,
-  should_alert_95: false,
 }
 
 function requestContext(agent = false, stream = false) {

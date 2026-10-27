@@ -52,8 +52,6 @@ export function modelShortName(model: string): string {
   if (model.includes('gemini-2.5-pro')) return 'Gemini 2.5 Pro'
   if (model.includes('gemini-2.5-flash')) return 'Gemini 2.5 Flash'
   if (model.includes('gemini')) return 'Gemini'
-  if (model === 'exact_cache') return 'Exact Cache'
-  if (model === 'cached') return 'Sem. Cache'
   return model
 }
 
@@ -65,8 +63,6 @@ export const MODEL_COLORS: Record<string, string> = {
   'gpt-4o-mini': '#6ee7b7',
   'gemini-2.5-pro': '#a78bfa',
   'gemini-2.5-flash': '#c4b5fd',
-  'cached': '#475569',
-  'exact_cache': '#0ea5e9',
 }
 
 export function daysAgo(days: number): Date {

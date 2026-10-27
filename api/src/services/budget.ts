@@ -77,8 +77,6 @@ export class BudgetService {
         current_spend_usd: 0,
         limit_usd: 0,
         utilization: 0,
-        should_alert_80: false,
-        should_alert_95: false,
       }
     }
     const { month, day } = budgetPeriods()
@@ -112,8 +110,6 @@ export class BudgetService {
         current_spend_usd: currentSpend / 1_000_000,
         limit_usd: limit / 1_000_000,
         utilization,
-        should_alert_80: utilization >= 0.80 && utilization < 0.81,
-        should_alert_95: utilization >= 0.95 && utilization < 0.96,
         fallback_model: undefined,
       }
     } catch (err) {
@@ -124,8 +120,6 @@ export class BudgetService {
         current_spend_usd: 0,
         limit_usd: monthlyLimit / 1_000_000,
         utilization: 0,
-        should_alert_80: false,
-        should_alert_95: false,
         fallback_model: undefined,
       }
     }

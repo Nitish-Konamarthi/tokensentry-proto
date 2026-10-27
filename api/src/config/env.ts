@@ -15,10 +15,6 @@ const envSchema = z.object({
   // Valkey
   VALKEY_URL: z.string().url().default('redis://localhost:6379'),
 
-  // Auth0
-  AUTH0_DOMAIN: z.string().min(1),
-  AUTH0_AUDIENCE: z.string().min(1),
-
   // AI Providers (optional — set at least one)
   ANTHROPIC_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
@@ -54,8 +50,6 @@ const testDefaults = process.env.NODE_ENV === 'test' ? {
   API_KEY_PEPPER: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   DATABASE_URL: 'postgresql://localhost:5432/tokensentry_test',
   VALKEY_URL: 'redis://localhost:6379/1',
-  AUTH0_DOMAIN: 'test.tokensentry.ai',
-  AUTH0_AUDIENCE: 'https://api.tokensentry.ai',
 } : {}
 
 const envToParse = { ...testDefaults, ...process.env }

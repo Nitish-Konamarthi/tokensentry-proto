@@ -1,227 +1,42 @@
 # TokenSentry API
 
-## Overview
+The API accepts TokenSentry API keys in the Authorization bearer header. Provider credentials are configured on the API server.
 
-TokenSentry exposes an HTTP API for AI clients and agents.
+## Proxy
 
-The primary V1 operation is the proxy endpoint:
-
-```text
 POST /v1/proxy
-```
 
-Clients send model requests to TokenSentry instead of directly communicating with an LLM provider.
+The request body supports model, messages, optional system text, stream, max_tokens, and temperature. Each message has role user, assistant, or system and string content. This is a supported subset of the OpenAI chat-completions request shape; provider SDKs are not guaranteed to work unchanged.
 
-```text
-Client
-   │
-   │ HTTP request
-   ▼
-TokenSentry
-   │
-   ▼
-LLM Provider
-```
+~~~json
+{
+  "model": "anthropic/claude-haiku-4-5",
+  "messages": [
+    { "role": "user", "content": "Explain distributed systems." }
+  ],
+  "max_tokens": 256
+}
+~~~
 
----
+The checked-in model catalog is authoritative. Unknown models and models without known prices are rejected. Organization model policy and budget checks are applied before provider execution. Successful non-streaming responses use an OpenAI-style choices and usage envelope. The x-call-id response header is present for proxy responses; successful non-streaming responses also include _ts.call_id.
 
-# Authentication
+A provider may be selected or changed by the configured deterministic routing policy. The response model field reports the selected model. Actual provider usage is used when available; otherwise accounting uses the gateway's estimate. The _ts.saved_usd value is a catalog-based estimate comparing requested and selected models, not a provider-billed savings amount.
 
-Protected endpoints require a valid TokenSentry API key.
+## Governance and failures
 
-The client should send the key using the configured authentication mechanism.
+Requests pass through authentication, rate limiting, budget reservation, model policy and routing, Agent Guard, provider execution, and accounting. Budget enforcement fails closed if Valkey is unavailable. Provider failures release applicable reservations.
 
-Example:
+Streaming is supported by the provider adapters. After response headers are sent, a later provider failure cannot change the HTTP status.
 
-```bash
-curl http://localhost:3000/v1/proxy \
-  -H "Authorization: Bearer <TOKEN_SENTRY_API_KEY>" \
-  -H "Content-Type: application/json"
-```
+## Health
 
-Do not expose provider API keys to clients.
+- GET /health/live reports that the process is running.
+- GET /health/ready checks PostgreSQL and Valkey and returns 503 when either required dependency is unavailable.
 
-Provider credentials are configured by the operator in the API server environment. TokenSentry does not accept or store provider credentials through the dashboard/API. The V1 model catalog is checked into the repository; unknown model identifiers are rejected.
+## Other implemented API areas
 
----
+The API also exposes budget policy, API key, analytics, Agent Guard, audit log, provider credential status, organization settings, and member listing/removal routes. Route implementations are under api/src/routes. The OpenAPI file documents the core health, proxy, budget, API-key, and analytics routes; it is not yet a complete specification of all registered administration routes.
 
-# Proxy Request
+POST /v1/invitations is present but returns 501 because V1 has no identity-provider invitation integration.
 
-## Endpoint
-
-```text
-POST /v1/proxy
-```
-
-The proxy accepts an OpenAI-compatible model request and applies TokenSentry governance before forwarding it to the selected provider.
-
-Example:
-
-```bash
-curl http://localhost:3000/v1/proxy \
-  -H "Authorization: Bearer <TOKEN_SENTRY_API_KEY>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-4o-mini",
-    "messages": [
-      {
-        "role": "user",
-        "content": "Explain distributed systems in simple terms."
-      }
-    ]
-  }'
-```
-
-The exact supported request fields depend on the provider/model adapter.
-
----
-
-# Request Processing
-
-A proxy request goes through:
-
-```text
-Authentication
-      ↓
-Rate Limit
-      ↓
-Budget
-      ↓
-Model Policy
-      ↓
-Routing
-      ↓
-Agent Guard
-      ↓
-Provider
-      ↓
-Usage / Cost
-```
-
-A request that fails a governance check is rejected before provider execution.
-If the shared budget store is unavailable, proxy requests fail closed with HTTP 503 rather than bypassing budget enforcement.
-
----
-
-# Call ID
-
-Each proxied request receives a unique call identifier.
-
-The response contains:
-
-```text
-x-call-id
-```
-
-Example:
-
-```text
-x-call-id: 8e7c2f3e-...
-```
-
-Use this identifier when correlating client activity with gateway logs and accounting information.
-
----
-
-# Error Responses
-
-TokenSentry normalizes important gateway and provider errors.
-
-Examples include:
-
-```text
-PROVIDER_AUTH
-PROVIDER_RATE_LIMIT
-PROVIDER_BAD_REQUEST
-PROVIDER_UNAVAILABLE
-PROVIDER_TIMEOUT
-PROVIDER_NETWORK
-PROVIDER_ERROR
-```
-
-A typical error response follows the gateway's structured error format.
-
-Clients should use the returned error code rather than depending on provider-specific error strings.
-
----
-
-# Health Endpoints
-
-TokenSentry provides health/readiness endpoints for operational checks.
-
-These can be used by:
-
-- NGINX
-- Docker
-- Deployment infrastructure
-- Monitoring systems
-- Operators
-
-The exact endpoint paths should be verified against the current API route definitions before integrating them into external infrastructure.
-
----
-
-# Streaming
-
-Streaming requests are supported where the selected provider adapter supports streaming.
-
-Example:
-
-```bash
-curl -N http://localhost:3000/v1/proxy \
-  -H "Authorization: Bearer <TOKEN_SENTRY_API_KEY>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-4o-mini",
-    "stream": true,
-    "messages": [
-      {
-        "role": "user",
-        "content": "Explain TCP."
-      }
-    ]
-  }'
-```
-
-Because streaming responses begin before the complete provider operation finishes, provider failures occurring after streaming starts cannot change an HTTP status already sent to the client.
-
-## Team invitations
-
-`POST /v1/invitations` currently returns `501 INVITATIONS_NOT_CONFIGURED`. V1 does not yet integrate with an identity-provider invitation API; it will not create a placeholder member record.
-
----
-
-# Client Architecture
-
-The intended integration is:
-
-```text
-Application / Agent
-        │
-        │ TokenSentry API
-        ▼
-   TokenSentry
-        │
-        ▼
-    LLM Provider
-```
-
-The application should not need to implement separate gateway controls for every provider.
-
----
-
-# API Design Principle
-
-TokenSentry should expose stable gateway semantics while keeping provider-specific behavior behind the provider layer.
-
-The client should therefore primarily reason about:
-
-```text
-Authentication
-Rate limits
-Budget
-Model policy
-Gateway errors
-```
-
-rather than individual provider implementation details.
+See api/openapi.yaml for the documented core route contracts.

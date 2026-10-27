@@ -3,7 +3,7 @@ ARG NODE_VERSION=22
 FROM node:${NODE_VERSION}-alpine AS deps
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --frozen-lockfile
+RUN npm ci
 
 FROM node:${NODE_VERSION}-alpine AS builder
 WORKDIR /app

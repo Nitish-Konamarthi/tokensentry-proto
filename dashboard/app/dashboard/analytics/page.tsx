@@ -48,7 +48,7 @@ export default function UsageAnalyticsPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="rounded-xl border bg-card p-6">
-          <h3 className="font-semibold mb-5">Daily Spend vs Savings ({days}d)</h3>
+          <h3 className="font-semibold mb-5">Daily Spend ({days}d)</h3>
           <SpendChart data={spendData?.time_series ?? []} loading={spendLoading} />
         </div>
         <div className="rounded-xl border bg-card p-6">

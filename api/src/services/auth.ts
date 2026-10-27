@@ -1,18 +1,7 @@
 import { pg } from '../clients/postgres.js'
-import { valkey, ValkeyKeys } from '../clients/valkey.js'
 import { hashApiKey } from '../lib/crypto.js'
 import { logger } from '../lib/logger.js'
-import { env } from '../config/env.js'
-import { createRemoteJWKSet, jwtVerify } from 'jose'
 import type { AuthContext } from '../types/index.js'
-
-let jwks: ReturnType<typeof createRemoteJWKSet> | null = null
-function getJwks() {
-  if (!jwks) {
-    jwks = createRemoteJWKSet(new URL(`https://${env.AUTH0_DOMAIN}/.well-known/jwks.json`))
-  }
-  return jwks
-}
 
 export class AuthService {
   async authenticateApiKey(rawKey: string, ip: string): Promise<AuthContext> {
@@ -56,27 +45,6 @@ export class AuthService {
     return ctx
   }
 
-  async authenticateJWT(token: string): Promise<{ sub: string; email?: string }> {
-    try {
-      const { payload } = await jwtVerify(token, getJwks(), {
-        issuer: `https://${env.AUTH0_DOMAIN}/`,
-        audience: env.AUTH0_AUDIENCE,
-      })
-
-      const jti = payload['jti']
-      if (jti) {
-        const blacklisted = await valkey.exists(ValkeyKeys.authJwtBlacklist(String(jti)))
-        if (blacklisted) throw new Error('TOKEN_REVOKED')
-      }
-
-      return {
-        sub: payload['sub'] as string,
-        ...(typeof payload['email'] === 'string' ? { email: payload['email'] } : {}),
-      }
-    } catch (err) {
-      throw new Error('INVALID_JWT')
-    }
-  }
 }
 
 export const authService = new AuthService()

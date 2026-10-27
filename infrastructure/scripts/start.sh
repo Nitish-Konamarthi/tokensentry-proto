@@ -1,77 +1,53 @@
-#!/bin/bash
-# ═══════════════════════════════════════════════════════════
-# TokenSentry — Production Startup Script
-# ═══════════════════════════════════════════════════════════
+#!/usr/bin/env bash
+# Start the TokenSentry single-host Compose deployment.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$DIR"
 
-echo "=== TokenSentry Production Startup ==="
-
-# 1. Generate DH param if missing
-if [ ! -f nginx/ssl/dhparam.pem ]; then
-  echo "[1/6] Generating DH param (2048-bit)..."
-  mkdir -p nginx/ssl
-  openssl dhparam -out nginx/ssl/dhparam.pem 2048
-else
-  echo "[1/6] DH param exists, skipping"
-fi
-
-# 2. Check .env
 if [ ! -f .env ]; then
-  echo "[2/6] ERROR: .env file not found. Copy .env.example and fill in secrets."
+  echo "ERROR: .env is missing. Copy .env.example and configure the required values."
   exit 1
 fi
-echo "[2/6] .env file found"
 
-# 3. Pull images
-echo "[3/6] Pulling Docker images..."
-docker compose pull --quiet 2>/dev/null || true
-
-# 4. Start infrastructure (PG + Valkey first, then everything else)
-echo "[4/6] Starting services..."
-docker compose up -d postgres valkey
-echo "  Waiting for postgres..."
-sleep 5
-
-# 5. Build and start remaining services
-docker compose up -d --build
-
-# 6. Verify health
-echo "[5/6] Verifying health..."
-for i in {1..12}; do
-  sleep 5
-  STATUS=$(curl -sf http://localhost:3000/health/ready 2>/dev/null || echo "")
-  if echo "$STATUS" | grep -q '"status":"ok"'; then
-    echo "  API healthy"
-    break
+for domain in api.tokensentry.ai app.tokensentry.ai tokensentry.ai; do
+  cert="certbot_conf/live/$domain"
+  if [ ! -f "$cert/fullchain.pem" ] || [ ! -f "$cert/privkey.pem" ]; then
+    echo "ERROR: TLS certificate for $domain is missing from $cert."
+    echo "Provision the initial certificates before starting the Compose stack."
+    exit 1
   fi
-  echo "  Waiting for API... (attempt $i/12)"
 done
 
-if curl -sf -o /dev/null http://localhost:3001; then
-  echo "  Dashboard responding"
+if [ ! -f nginx/ssl/dhparam.pem ]; then
+  echo "Generating 2048-bit NGINX Diffie-Hellman parameters..."
+  mkdir -p nginx/ssl
+  openssl dhparam -out nginx/ssl/dhparam.pem 2048
 fi
 
-# 7. Issuing SSL (first run only)
-echo "[6/6] Checking SSL certificates..."
-if [ ! -d "certbot_conf/live" ]; then
-  echo "  No SSL certs found. Issuing..."
-  docker compose run --rm certbot certonly --webroot \
-    -w /var/www/certbot \
-    -d api.tokensentry.ai -d app.tokensentry.ai \
-    -d tokensentry.ai -d www.tokensentry.ai \
-    --email "${CERTBOT_EMAIL:-admin@tokensentry.ai}" \
-    --agree-tos --non-interactive || echo "  SSL issuance skipped (DNS may not be ready)"
+docker compose pull --quiet postgres valkey nginx certbot pgbackup
+
+echo "Starting PostgreSQL and Valkey..."
+docker compose up -d postgres valkey
+
+echo "Building and starting TokenSentry services..."
+docker compose up -d --build
+
+echo "Checking API readiness..."
+api_ready=0
+for attempt in {1..12}; do
+  if docker compose exec -T api node -e "fetch('http://localhost:3000/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"; then
+    api_ready=1
+    break
+  fi
+  echo "Waiting for API readiness (attempt $attempt/12)..."
+  sleep 5
+done
+
+if [ "$api_ready" -ne 1 ]; then
+  echo "ERROR: API did not become ready. Check docker compose logs api."
+  exit 1
 fi
 
-docker compose restart nginx
-
-echo ""
-echo "=== Startup Complete ==="
-echo "  API:       https://api.tokensentry.ai/health/ready"
-echo "  Dashboard: https://app.tokensentry.ai"
-echo "  Website:   https://tokensentry.ai"
-echo ""
-echo "  View logs: docker compose logs --tail=50 -f api"
+echo "TokenSentry API is ready."
+docker compose ps

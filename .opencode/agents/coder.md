@@ -1,5 +1,5 @@
 ---
-description: Implement verified plans. Preserve architecture (routes -> services -> repositories -> DB). Do not delete existing docs.
+description: Implement verified V1 plans. Preserve the API's routes -> services -> repositories -> database structure and keep canonical docs accurate.
 mode: subagent
 model: openrouter/free
 tools:

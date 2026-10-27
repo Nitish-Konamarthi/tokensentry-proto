@@ -59,7 +59,3 @@ export function estimateTokenCount(messages: ProxyRequest['messages']): number {
     return sum + Math.ceil(message.content.length / 4)
   }, 0)
 }
-
-export function estimatePromptSavings(originalMessages: ProxyRequest['messages'], cleanedMessages: ProxyRequest['messages']): number {
-  return Math.max(0, estimateTokenCount(originalMessages) - estimateTokenCount(cleanedMessages))
-}

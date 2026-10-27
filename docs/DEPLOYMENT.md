@@ -1,356 +1,66 @@
-# TokenSentry Deployment
+# TokenSentry V1 Deployment
 
-## Overview
+This guide describes the checked-in deployment configuration and its limits. It does not claim production readiness.
 
-TokenSentry V1 is designed to run as a lightweight gateway backed by PostgreSQL and Valkey.
+## Runtime requirements
 
-A simple deployment looks like:
+The API requires:
 
-```text
-                    Internet
-                       │
-                       ▼
-                     NGINX
-                       │
-                       ▼
-                TokenSentry API
-                 │          │
-                 ▼          ▼
-            PostgreSQL     Valkey
-                 │
-                 ▼
-             Providers
-```
-
-The architecture is intentionally small and does not require Kubernetes or a distributed infrastructure stack.
-
----
-
-# Prerequisites
-
-A deployment requires:
-
-- Linux server or equivalent environment
-- Docker
-- Docker Compose
-- Network access to required LLM providers
+- Node.js 22 or the API Docker image
 - PostgreSQL
-- Valkey
-- Provider credentials
-- TokenSentry configuration
+- Valkey or a compatible Redis service that supports the commands and Lua scripts used by the API
+- At least one configured provider credential to execute model requests
+- API_KEY_PEPPER of at least 32 characters
+- Auth0 settings for the dashboard
 
----
+The dashboard also requires Auth0 configuration and a server-side TokenSentry API key. The website has no runtime secrets.
 
-# Environment Configuration
+## Local API development
 
-TokenSentry configuration is supplied through environment variables.
+Copy infrastructure/.env.example to infrastructure/.env and api/.env.example to api/.env. Set the required values. The development Compose file is an override for the main Compose file, so use both files to start only PostgreSQL and Valkey:
 
-Typical configuration categories include:
+~~~powershell
+docker compose --env-file infrastructure/.env -f infrastructure/docker-compose.yml -f infrastructure/docker-compose.dev.yml up -d postgres valkey
+~~~
 
-```text
-Application
-Database
-Valkey
-Authentication
-Provider credentials
-Rate limits
-Budget policies
-Trusted proxy configuration
-```
+From api/, install dependencies, apply the database migrations, and start the API:
 
-Use the repository's `.env.example` as the source of truth for variable names.
+~~~powershell
+npm ci
+npm run db:migrate
+npm run dev
+~~~
 
-Do not copy production secrets into Git.
+The development compose file starts only PostgreSQL and Valkey. It does not start the API or web applications.
 
----
+## Docker Compose deployment template
 
-# Docker Deployment
+The full stack definition is infrastructure/docker-compose.yml. Run Compose from the infrastructure/ directory so its relative paths and .env file resolve correctly:
 
-From the repository root:
+~~~powershell
+cd infrastructure
+Copy-Item .env.example .env
+docker compose config
+docker compose up --build -d
+~~~
 
-```bash
-docker compose up -d
-```
+The template targets a single Linux host with DNS names api.tokensentry.ai, app.tokensentry.ai, and tokensentry.ai. It expects initial TLS certificates for those names, valid Auth0 settings, provider credentials, and database secrets. The start script checks for certificates before it starts the stack and generates the NGINX Diffie-Hellman parameter file if needed. The certbot container attempts renewal of existing certificates; after a renewal, reload NGINX so it serves the renewed certificate. The template does not obtain the initial certificates.
 
-Verify the services:
+The PostgreSQL backup container writes daily dumps to a separate local Docker volume and retains seven days. This is local host storage, not an off-host backup. Copy backups to a separate storage location before relying on them for recovery.
 
-```bash
-docker compose ps
-```
+The API image is built from api/Dockerfile. The dashboard and website use standalone Next.js Docker output. PostgreSQL and Valkey are internal services in the Compose network.
 
-View logs:
+## Health checks
 
-```bash
-docker compose logs -f
-```
+- GET /health/live reports process liveness.
+- GET /health/ready checks PostgreSQL and Valkey and returns 503 if either is unavailable.
 
-To inspect API logs specifically:
+## Free-tier use
 
-```bash
-docker compose logs -f api
-```
+A free-tier deployment is suitable only for a prototype or low-traffic demonstration. The API needs a long-lived Node.js process, PostgreSQL, and Redis/Valkey-compatible commands including Lua scripting. Free hosting plans may sleep, restart, cap compute, or lose transient Valkey state. This can cause cold starts and governance requests to fail closed. Do not use a free-tier setup as a production service or for durable budget enforcement.
 
-The exact service name should match the current `docker-compose.yml`.
+The website build currently emits static pages but uses Next.js standalone output; use a Node.js service unless you deliberately configure and verify static export. The dashboard requires a Node.js runtime because it uses server-side Auth0 and API proxy routes.
 
----
+## Production requirements
 
-# Database
-
-PostgreSQL stores persistent TokenSentry data.
-
-Before starting the application in a fresh environment:
-
-1. Start PostgreSQL.
-2. Configure the database connection.
-3. Run the application's database initialization/migration process.
-4. Start TokenSentry.
-
-Database migrations should be applied using the project's current migration tooling.
-
----
-
-# Valkey
-
-Valkey provides shared fast state for controls such as:
-
-- Rate limiting
-- Budget enforcement
-- Agent Guard
-- Other transient gateway state
-
-Valkey should be reachable by the TokenSentry API service.
-
----
-
-# Reverse Proxy
-
-NGINX can sit in front of TokenSentry:
-
-```text
-Internet
-   │
-   ▼
- NGINX
-   │
-   ▼
-TokenSentry
-```
-
-The reverse proxy should:
-
-- Terminate TLS
-- Forward requests to TokenSentry
-- Preserve required request headers
-- Apply appropriate connection/request limits
-- Restrict access to internal TokenSentry ports where appropriate
-
----
-
-# TLS
-
-Production deployments should terminate HTTPS at the public edge.
-
-The recommended flow is:
-
-```text
-Client
-  │
-  │ HTTPS
-  ▼
-NGINX
-  │
-  │ HTTP/internal HTTPS
-  ▼
-TokenSentry
-```
-
-Never expose production API credentials through an unencrypted public connection.
-
----
-
-# Trusted Proxy Configuration
-
-When TokenSentry is behind NGINX or another reverse proxy, configure trusted proxy ranges explicitly.
-
-The gateway must distinguish between:
-
-```text
-Trusted infrastructure headers
-```
-
-and:
-
-```text
-Client-controlled headers
-```
-
-Incorrect trusted-proxy configuration can affect IP-based controls such as rate limiting.
-
-Only networks that are genuinely trusted should be configured as trusted proxies.
-
----
-
-# Provider Credentials
-
-Provider credentials must remain server-side.
-
-Examples include credentials for:
-
-```text
-OpenAI
-Anthropic
-Google
-Groq
-```
-
-Clients should authenticate with TokenSentry rather than receiving provider credentials.
-
-The intended architecture is:
-
-```text
-Client
-   │
-   │ TokenSentry credential
-   ▼
-TokenSentry
-   │
-   │ Provider credential
-   ▼
-Provider
-```
-
----
-
-# Production Checklist
-
-Before exposing TokenSentry publicly:
-
-- [ ] HTTPS enabled
-- [ ] Production secrets configured securely
-- [ ] Provider credentials stored server-side
-- [ ] Database configured
-- [ ] Valkey configured
-- [ ] Trusted proxy ranges explicitly configured
-- [ ] Default development credentials removed
-- [ ] Debug/development settings disabled
-- [ ] Rate limits configured
-- [ ] Budgets configured
-- [ ] Health checks verified
-- [ ] Provider connectivity verified
-- [ ] Database migrations applied
-- [ ] Logs verified
-- [ ] Backup strategy established for persistent data
-- [ ] Firewall rules reviewed
-
----
-
-# Operational Verification
-
-After deployment, verify:
-
-```text
-NGINX
-  │
-  ▼
-TokenSentry
-  │
-  ├── PostgreSQL
-  │
-  ├── Valkey
-  │
-  └── Provider
-```
-
-A useful validation sequence is:
-
-1. Check service health.
-2. Authenticate with a valid TokenSentry credential.
-3. Send a valid proxy request.
-4. Verify provider execution.
-5. Verify the returned call ID.
-6. Verify usage/accounting.
-7. Test rate limiting.
-8. Test budget enforcement.
-9. Test an invalid model.
-10. Test provider failure handling.
-
----
-
-# Scaling
-
-V1 can begin as a single gateway instance:
-
-```text
-             ┌─────────────┐
-Internet ───►│ TokenSentry │
-             └──────┬──────┘
-                    │
-             ┌──────┴──────┐
-             ▼             ▼
-        PostgreSQL       Valkey
-```
-
-If actual traffic requires horizontal scaling:
-
-```text
-                  NGINX / LB
-                       │
-             ┌─────────┼─────────┐
-             ▼         ▼         ▼
-          Gateway   Gateway   Gateway
-             │         │         │
-             └─────────┼─────────┘
-                       │
-                 Shared state
-                 PostgreSQL
-                    Valkey
-```
-
-The gateway should only be distributed when there is a concrete availability or throughput requirement.
-
----
-
-# Backups
-
-PostgreSQL contains persistent application data and should have an appropriate backup strategy in production.
-
-Valkey state should be treated according to the semantics of each stored value. Not all gateway state necessarily has the same durability requirements as PostgreSQL data.
-
----
-
-# Monitoring
-
-V1 intentionally does not require a complex observability stack.
-
-Start with:
-
-- Application logs
-- Container logs
-- Health checks
-- Provider error rates
-- Request counts
-- Budget usage
-- Database health
-- Valkey health
-
-Additional observability infrastructure can be introduced when operational requirements justify it.
-
----
-
-# Deployment Philosophy
-
-TokenSentry V1 should be deployed as simply as possible.
-
-The recommended progression is:
-
-```text
-Local Docker Compose
-        ↓
-Single production VM
-        ↓
-Horizontal gateway scaling
-        ↓
-More advanced infrastructure
-```
-
-Do not introduce distributed infrastructure before the workload requires it.
+Before serving real users, use paid/appropriate hosting with persistent PostgreSQL, reliable Redis-compatible state, TLS, secrets management, backups, monitoring, and tested recovery procedures. Verify the complete deployment by exercising authentication, budget reservation/reconciliation, provider execution, streaming, and failure paths.

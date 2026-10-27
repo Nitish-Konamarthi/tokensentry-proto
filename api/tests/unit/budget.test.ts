@@ -46,9 +46,6 @@ describe('BudgetService', () => {
       userId: null,
       monthlyLimitMicros: '500000000',
       dailyLimitMicros: null,
-      alertAt80Pct: true,
-      alertAt95Pct: true,
-      onExhaustion: 'block',
     })
 
     const result = await budget.checkAndDeduct({
@@ -72,9 +69,6 @@ describe('BudgetService', () => {
       userId: null,
       monthlyLimitMicros: '500000000',
       dailyLimitMicros: null,
-      alertAt80Pct: true,
-      alertAt95Pct: true,
-      onExhaustion: 'block',
     })
 
     const result = await budget.checkAndDeduct({

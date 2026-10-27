@@ -3,8 +3,8 @@ import './globals.css'
 import { Providers } from '../components/providers'
 
 export const metadata: Metadata = {
-  title: { default: 'TokenSentry — AI Token Governance', template: '%s | TokenSentry' },
-  description: 'Enterprise AI cost governance. Save 50–80% on AI API costs.',
+  title: { default: 'TokenSentry V1 Dashboard', template: '%s | TokenSentry' },
+  description: 'Administration dashboard for the TokenSentry V1 AI gateway.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

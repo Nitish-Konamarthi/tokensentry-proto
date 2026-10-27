@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from './api-client'
-import type { RealtimeMetrics, DailyRow, ModelRow, BudgetPolicy, ApiKey } from './types'
+import type { DailyRow, ModelRow, BudgetPolicy, ApiKey } from './types'
 import { useUser } from '@auth0/nextjs-auth0/client'
 
 function useOrgId(): string | undefined {
@@ -103,10 +103,10 @@ export function useRevokeApiKey() {
 
 // ── Agent Guard ──
 
-export function useAgentSessions(orgId: string) {
+export function useAgentSessions() {
   return useQuery({
-    queryKey: ['agents', orgId],
-    queryFn: () => api.getAgentSessions(orgId),
+    queryKey: ['agents'],
+    queryFn: api.getAgentSessions,
     staleTime: 30_000,
   })
 }
