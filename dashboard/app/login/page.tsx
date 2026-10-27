@@ -27,6 +27,8 @@ export default function LoginPage() {
           </p>
         </div>
 
+        {/* Auth0 login/logout endpoints require a full document navigation. */}
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
         <a
           href="/api/auth/login"
           className="flex w-full items-center justify-center gap-3 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"

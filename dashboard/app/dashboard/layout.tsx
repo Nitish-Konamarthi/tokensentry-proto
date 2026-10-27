@@ -79,6 +79,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <p className="text-sidebar-muted truncate">{userEmail ?? ''}</p>
             </div>
           </div>
+          {/* Auth0 login/logout endpoints require a full document navigation. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a
             href="/api/auth/logout"
             className="flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground rounded-md hover:bg-muted transition-colors"
@@ -100,6 +102,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <span className="text-sm font-semibold">TokenSentry</span>
           </div>
           <div className="flex items-center gap-2">
+            {/* Auth0 login/logout endpoints require a full document navigation. */}
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
             <a
               href="/api/auth/logout"
               className="h-8 w-8 rounded-md border flex items-center justify-center text-muted-foreground hover:text-foreground"

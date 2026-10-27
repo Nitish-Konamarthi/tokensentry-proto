@@ -1,4 +1,4 @@
-import { getSession } from '@auth0/nextjs-auth0'
+import { auth0 } from '@/lib/auth0'
 import { NextRequest, NextResponse } from 'next/server'
 
 const DASHBOARD_ROUTES: Record<string, string[]> = {
@@ -20,8 +20,8 @@ function isAllowedRoute(method: string, path: string[]): boolean {
   return false
 }
 
-async function handler(request: NextRequest, context: { params: { path: string[] } }) {
-  const session = await getSession()
+async function handler(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
+  const session = await auth0.getSession(request)
   const user = session?.user
   if (!user?.email || user.email_verified !== true) {
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
@@ -40,7 +40,8 @@ async function handler(request: NextRequest, context: { params: { path: string[]
   }
 
   const method = request.method.toUpperCase()
-  const path = context.params.path ?? []
+  const { path: routePath } = await context.params
+  const path = routePath ?? []
   if (!isAllowedRoute(method, path) || path.some(segment => segment === '.' || segment === '..' || segment.includes('/'))) {
     return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 })
   }

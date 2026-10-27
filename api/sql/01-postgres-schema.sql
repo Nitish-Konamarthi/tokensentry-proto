@@ -77,6 +77,44 @@ CREATE TABLE budgets (
 
 CREATE INDEX idx_budgets_org ON budgets(org_id);
 
+-- ── Agent Guard ──
+
+CREATE TABLE agent_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  turn_count INTEGER NOT NULL DEFAULT 0,
+  tokens_consumed INTEGER NOT NULL DEFAULT 0,
+  token_budget INTEGER NOT NULL DEFAULT 100000,
+  loop_detected BOOLEAN NOT NULL DEFAULT false,
+  risk_score INTEGER,
+  last_action TEXT,
+  started_at TIMESTAMPTZ DEFAULT NOW(),
+  terminated_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX agent_sessions_org_session_unique ON agent_sessions(org_id, session_id);
+CREATE INDEX agent_sessions_org_agent_idx ON agent_sessions(org_id, agent_id);
+CREATE INDEX agent_sessions_status_idx ON agent_sessions(status);
+
+CREATE TABLE agent_guard_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  score INTEGER NOT NULL,
+  action TEXT NOT NULL,
+  factors JSONB NOT NULL DEFAULT '[]',
+  call_id TEXT,
+  input_tokens INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX agent_guard_events_org_created_idx ON agent_guard_events(org_id, created_at);
+
 -- ── Usage Logs ──
 
 CREATE TABLE usage_logs (
@@ -88,6 +126,17 @@ CREATE TABLE usage_logs (
   call_id        TEXT NOT NULL,
   model          TEXT NOT NULL,
   provider       TEXT NOT NULL,
+  model_owner    TEXT,
+  canonical_model TEXT,
+  upstream       TEXT,
+  upstream_model TEXT,
+  route_priority INTEGER,
+  attempt_number INTEGER,
+  attempts       JSONB,
+  fallback_used  BOOLEAN,
+  fallback_upstream TEXT,
+  success        BOOLEAN,
+  normalized_error_category TEXT,
   input_tokens   INTEGER NOT NULL DEFAULT 0,
   output_tokens  INTEGER NOT NULL DEFAULT 0,
   cost_micros    INTEGER NOT NULL DEFAULT 0,
@@ -103,6 +152,7 @@ CREATE TABLE usage_logs (
 CREATE INDEX idx_usage_logs_org_created ON usage_logs(org_id, created_at DESC);
 CREATE INDEX idx_usage_logs_model ON usage_logs(org_id, model);
 CREATE INDEX idx_usage_logs_provider ON usage_logs(org_id, provider);
+CREATE INDEX usage_logs_upstream_idx ON usage_logs(org_id, upstream);
 
 -- ── Routing Logs ──
 
@@ -113,6 +163,17 @@ CREATE TABLE routing_logs (
   requested_model     TEXT NOT NULL,
   recommended_model   TEXT,
   approved_model      TEXT NOT NULL,
+  canonical_model     TEXT,
+  model_owner         TEXT,
+  upstream            TEXT,
+  upstream_model      TEXT,
+  route_priority      INTEGER,
+  attempt_number      INTEGER,
+  attempts            JSONB,
+  fallback_used       BOOLEAN,
+  fallback_upstream   TEXT,
+  success             BOOLEAN,
+  normalized_error_category TEXT,
   complexity          TEXT,
   confidence          DECIMAL(4,3),
   reasoning           TEXT,

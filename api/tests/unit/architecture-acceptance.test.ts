@@ -12,6 +12,7 @@ describe('Architecture Acceptance — Production Runtime', () => {
     // The singleton is initialized with external sources via catalog-bootstrap
     expect(modelCatalogService.getDescriptor('anthropic/claude-sonnet-4-6')).toBeDefined()
     expect(modelCatalogService.getDescriptor('openai/gpt-4o')).toBeDefined()
+    expect(modelCatalogService.getDescriptor('nvidia/nemotron-3-ultra-550b-a55b:free')).toBeDefined()
     expect(modelCatalogService.getDescriptor('unknown-model')).toBeUndefined()
   })
 
@@ -73,6 +74,16 @@ describe('Architecture Acceptance — Production Runtime', () => {
     const routes = getRoutesForModel('anthropic/claude-sonnet-4-6')
     const openrouterRoute = routes.find(r => r.upstreamId === 'openrouter')
     expect(openrouterRoute).toBeDefined()
+  })
+
+  it('Free Nemotron resolves through OpenRouter with zero catalog pricing', () => {
+    const model = 'nvidia/nemotron-3-ultra-550b-a55b:free'
+    const descriptor = modelCatalogService.getDescriptor(model)
+    expect(descriptor?.cost).toEqual({ input: 0, output: 0 })
+    expect(providerRouter.resolveUpstream(model)).toMatchObject({
+      upstreamId: 'openrouter',
+      upstreamModelId: model,
+    })
   })
 
   it('Router policy evaluates against catalog descriptors', async () => {

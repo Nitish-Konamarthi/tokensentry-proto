@@ -29,6 +29,13 @@
       "when": 1782195568876,
       "tag": "0003_v1_integrity",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793104523320,
+      "tag": "0004_v1_schema_alignment",
+      "breakpoints": true
     }
   ]
 }

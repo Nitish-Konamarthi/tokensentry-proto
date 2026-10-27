@@ -18,6 +18,8 @@ export class FixtureCatalogSource implements CatalogSource {
     { id: 'google/gemini-2.0-flash', owner: 'google', family: 'gemini', tier: 'low', capabilityScore: 1, cost: { input: 0.10, output: 0.40 }, supportsCoding: false, supportsReasoning: false },
     { id: 'groq/llama-3.1-70b', owner: 'groq', family: 'llama', tier: 'high', capabilityScore: 3, cost: { input: 0.59, output: 0.79 }, supportsCoding: true, supportsReasoning: false },
     { id: 'groq/llama-3.1-8b', owner: 'groq', family: 'llama', tier: 'low', capabilityScore: 1, cost: { input: 0.05, output: 0.08 }, supportsCoding: true, supportsReasoning: false },
+    // OpenRouter's free endpoint; keep the exact upstream ID explicit in V1.
+    { id: 'nvidia/nemotron-3-ultra-550b-a55b:free', owner: 'nvidia', family: 'nemotron', tier: 'high', capabilityScore: 3, cost: { input: 0, output: 0 }, supportsCoding: true, supportsReasoning: true, contextWindow: 1_000_000 },
   ]
 
   getStaticDescriptors(): ModelDescriptor[] {

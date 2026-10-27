@@ -100,7 +100,7 @@ export class OpenRouterUpstreamAdapter implements UpstreamAdapter {
     if (!model || typeof model !== 'string') return false
 
     // Only support known provider prefixes
-    const knownPrefixes = ['anthropic/', 'openai/', 'google/', 'groq/', 'mistral/', 'meta/', 'qwen/']
+    const knownPrefixes = ['anthropic/', 'openai/', 'google/', 'groq/', 'mistral/', 'meta/', 'qwen/', 'nvidia/']
     for (const prefix of knownPrefixes) {
       if (model.startsWith(prefix)) return true
     }

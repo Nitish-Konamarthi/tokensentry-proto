@@ -74,7 +74,7 @@ export default function ApiKeysPage() {
 
             {newKeyValue && (
               <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
-                <p className="text-sm font-medium text-emerald-400 mb-2">Key created — copy it now. You won't see it again.</p>
+                <p className="text-sm font-medium text-emerald-400 mb-2">Key created — copy it now. You won&apos;t see it again.</p>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 rounded bg-muted px-3 py-2 text-sm font-mono">{newKeyValue}</code>
                   <Button size="sm" variant="outline" onClick={() => copyToClipboard(newKeyValue)}>

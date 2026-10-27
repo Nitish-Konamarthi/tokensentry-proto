@@ -1,3 +1,5 @@
+import Link from 'next/link'
+
 const features = [
   {
     title: 'Request governance',
@@ -22,7 +24,7 @@ export default function HomePage() {
     <main className="site-main">
       <header className="site-header">
         <nav className="site-nav">
-          <a href="/" className="site-brand">TokenSentry</a>
+          <Link href="/" className="site-brand">TokenSentry</Link>
           <a href="#scope" className="site-nav-link">V1 scope</a>
         </nav>
       </header>
