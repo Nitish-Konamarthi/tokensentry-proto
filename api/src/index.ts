@@ -1,5 +1,5 @@
 import './instrumentation.js'
-import { buildApp } from './app.js'
+import { buildApp } from './application.js'
 import { logger } from './lib/logger.js'
 import { closePg } from './clients/postgres.js'
 import { closeValkey } from './clients/valkey.js'

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
-import { buildApp } from '../../src/app.js'
+import { buildApp } from '../../src/application.js'
 
 describe('E2E authentication and authorization', () => {
   let app: FastifyInstance
