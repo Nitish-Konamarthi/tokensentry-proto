@@ -23,3 +23,5 @@ npm run build
 The API listens on port 3000 by default. Health endpoints are GET /health/live and GET /health/ready. The main proxy endpoint is POST /v1/proxy.
 
 Provider credentials are configured on the API server. Clients authenticate with a TokenSentry API key. See the API contract in ../docs/API.md and deployment guide in ../docs/DEPLOYMENT.md.
+
+Now The API is hosted on Vercel
