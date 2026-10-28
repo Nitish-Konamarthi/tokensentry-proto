@@ -55,6 +55,32 @@ The API image is built from api/Dockerfile. The dashboard and website use standa
 - GET /health/live reports process liveness.
 - GET /health/ready checks PostgreSQL and Valkey and returns 503 if either is unavailable.
 
+## Vercel, Neon, and Upstash prototype setup
+
+For the Vercel API project, set `DATABASE_URL` to Neon's pooled connection string and `VALKEY_URL` to Upstash's TLS Redis connection string. Set `API_KEY_PEPPER` to a private value of at least 32 characters and configure an OpenRouter key if you want to send model requests.
+
+Run schema migrations from a trusted local terminal using Neon's direct (unpooled) connection string:
+
+~~~powershell
+cd api
+$env:DATABASE_URL = Read-Host "Paste Neon direct connection string"
+npm run db:migrate
+Remove-Item Env:DATABASE_URL
+~~~
+
+After migrations, bootstrap the first organization and owner API key with the same `API_KEY_PEPPER` configured in Vercel:
+
+~~~powershell
+$env:DATABASE_URL = Read-Host "Paste Neon direct connection string"
+$securePepper = Read-Host "Paste the API_KEY_PEPPER configured in Vercel" -AsSecureString
+$env:API_KEY_PEPPER = [System.Net.NetworkCredential]::new("", $securePepper).Password
+npm run db:bootstrap
+Remove-Item Env:DATABASE_URL
+Remove-Item Env:API_KEY_PEPPER
+~~~
+
+The bootstrap command refuses to run if the database already contains an organization. It creates a $10 default monthly budget and limits the initial model policy to the explicitly listed free OpenRouter Nemotron model. Copy the generated owner key into a password manager and use it for the dashboard's server-side API key setting. Do not run the development `db:seed` script against the prototype database.
+
 ## Free-tier use
 
 A free-tier deployment is suitable only for a prototype or low-traffic demonstration. The API needs a long-lived Node.js process, PostgreSQL, and Redis/Valkey-compatible commands including Lua scripting. Free hosting plans may sleep, restart, cap compute, or lose transient Valkey state. This can cause cold starts and governance requests to fail closed. Do not use a free-tier setup as a production service or for durable budget enforcement.
