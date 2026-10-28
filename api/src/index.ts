@@ -1,5 +1,6 @@
 import './instrumentation.js'
-import { buildApp } from './application.js'
+import Fastify from 'fastify'
+import { buildApp, getFastifyOptions } from './application.js'
 import { logger } from './lib/logger.js'
 import { closePg } from './clients/postgres.js'
 import { closeValkey } from './clients/valkey.js'
@@ -8,7 +9,7 @@ import { initializeCatalog } from './catalog-bootstrap.js'
 
 async function main(): Promise<void> {
   await initializeCatalog()
-  const app = await buildApp()
+  const app = await buildApp(Fastify(getFastifyOptions()))
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'Shutting down gracefully...')

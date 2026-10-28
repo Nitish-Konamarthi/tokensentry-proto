@@ -18,14 +18,17 @@ import { providerRoutes } from './routes/providers.js'
 import { settingsRoutes } from './routes/settings.js'
 import { teamRoutes } from './routes/team.js'
 
-export async function buildApp(): Promise<FastifyInstance> {
+export function getFastifyOptions() {
   const trustedProxies = env.TRUSTED_PROXY_CIDRS.split(',').map(s => s.trim()).filter(Boolean)
-  const app = Fastify({
+  return {
     logger: false,
     trustProxy: trustedProxies.length > 0 ? trustedProxies : false,
     genReqId: () => randomUUID(),
     bodyLimit: 10 * 1024 * 1024,
-  })
+  }
+}
+
+export async function buildApp(app: FastifyInstance = Fastify(getFastifyOptions())): Promise<FastifyInstance> {
 
   app.decorateRequest('callId', '')
 
